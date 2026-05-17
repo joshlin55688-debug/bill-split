@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>分帳程式 – 善化美食</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green: #2e7d32;
+      --green-light: #43a047;
+      --green-bg: #e8f5e9;
+      --green-border: #c8e6c9;
+      --accent: #ff6f00;
+      --red: #c62828;
+      --blue: #1565c0;
+      --pool: #1565c0;
+      --pool-bg: #e3f2fd;
+      --pool-border: #bbdefb;
+      --text: #2d2d2d;
+      --text-muted: #777;
+      --bg: #fdf6ec;
+      --card-bg: #fff;
+      --radius: 12px;
+      --shadow: 0 2px 10px rgba(0,0,0,0.09);
+    }
+
+    body {
+      font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #2e7d32 0%, #43a047 55%, #66bb6a 100%);
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.22);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 1.3rem; letter-spacing: 1px; }
+    header .sub { font-size: 0.75rem; opacity: 0.85; margin-top: 2px; }
+    header a {
+      margin-left: auto;
+      background: rgba(255,255,255,0.2);
+      border: 1.5px solid rgba(255,255,255,0.5);
+      color: #fff;
+      padding: 5px 13px;
+      border-radius: 16px;
+      font-size: 0.78rem;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    header a:hover { background: rgba(255,255,255,0.35); }
+
+    /* ── Tab nav ── */
+    .tab-nav {
+      display: flex;
+      background: var(--card-bg);
+      border-bottom: 2px solid var(--green-border);
+      flex-shrink: 0;
+      overflow-x: auto;
+    }
+    .tab-nav::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      flex: 1;
+      min-width: 72px;
+      padding: 12px 6px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 3px solid transparent;
+      transition: all 0.18s;
+      white-space: nowrap;
+    }
+    .tab-btn.active { color: var(--green); border-bottom-color: var(--green); }
+    .tab-btn:hover:not(.active) { background: var(--green-bg); }
+
+    /* ── Content ── */
+    .tab-content { display: none; flex: 1; padding: 16px; max-width: 680px; margin: 0 auto; width: 100%; }
+    .tab-content.active { display: block; }
+
+    /* ── Section cards ── */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+      margin-bottom: 14px;
+    }
+    .card-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--green);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-title.pool { color: var(--pool); }
+
+    /* ── Forms ── */
+    label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px; }
+    input[type=text], input[type=number], select, textarea {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      background: #fafafa;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--green-light); background: #fff; }
+    textarea { resize: vertical; min-height: 64px; }
+
+    .form-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .form-row > * { flex: 1; min-width: 120px; }
+    .form-group { margin-bottom: 12px; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 9px 18px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.18s;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--green); color: #fff; }
+    .btn-primary:hover { background: var(--green-light); }
+    .btn-pool { background: var(--pool); color: #fff; }
+    .btn-pool:hover { background: #1976d2; }
+    .btn-danger { background: #fdecea; color: var(--red); border: 1.5px solid #f5c6c6; }
+    .btn-danger:hover { background: #f9c6c6; }
+    .btn-outline { background: transparent; color: var(--green); border: 1.5px solid var(--green); }
+    .btn-outline:hover { background: var(--green-bg); }
+    .btn-sm { padding: 5px 11px; font-size: 0.76rem; border-radius: 6px; }
+    .btn-full { width: 100%; justify-content: center; }
+
+    /* ── Chips for member select ── */
+    .chip-group { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+    .chip {
+      padding: 4px 12px;
+      border-radius: 16px;
+      border: 1.5px solid #ccc;
+      font-size: 0.78rem;
+      cursor: pointer;
+      background: #fff;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .chip.selected { background: var(--green); color: #fff; border-color: var(--green); }
+    .chip.all-chip.selected { background: #555; border-color: #555; }
+
+    /* ── Member list ── */
+    .member-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .member-tag {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--green-bg);
+      border: 1.5px solid var(--green-border);
+      border-radius: 20px;
+      padding: 5px 12px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .member-tag .avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .member-tag .del-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #aaa;
+      font-size: 0.9rem;
+      line-height: 1;
+      padding: 0 0 0 2px;
+      transition: color 0.15s;
+    }
+    .member-tag .del-btn:hover { color: var(--red); }
+
+    /* ── Pool card ── */
+    .pool-card {
+      background: var(--pool-bg);
+      border: 1.5px solid var(--pool-border);
+    }
+    .pool-member-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px dashed var(--pool-border);
+    }
+    .pool-member-row:last-child { border-bottom: none; }
+    .pool-member-name {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      min-width: 70px;
+    }
+    .pool-member-row input[type=number] {
+      max-width: 130px;
+      border-color: var(--pool-border);
+    }
+    .pool-member-row input[type=number]:focus { border-color: var(--pool); }
+    .pool-share-label {
+      font-size: 0.75rem;
+      color: var(--pool);
+      white-space: nowrap;
+      margin-left: auto;
+      font-weight: 700;
+    }
+    .pool-summary {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: rgba(21,101,192,0.08);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--pool);
+      font-weight: 600;
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Expense list ── */
+    .expense-item {
+      border: 1.5px solid var(--green-border);
+      border-radius: 10px;
+      padding: 11px 13px;
+      margin-bottom: 8px;
+      background: #fff;
+      position: relative;
+    }
+    .expense-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .expense-name { font-weight: 700; font-size: 0.9rem; }
+    .expense-amount { font-size: 1rem; font-weight: 800; color: var(--green); white-space: nowrap; }
+    .expense-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+    .expense-participants { font-size: 0.72rem; color: #555; margin-top: 4px; }
+
+    /* ── Settlement ── */
+    .settle-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .settle-person {
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+      box-shadow: var(--shadow);
+      border-top: 4px solid;
+    }
+    .settle-person.creditor { border-top-color: var(--green); }
+    .settle-person.debtor { border-top-color: var(--red); }
+    .settle-person.zero { border-top-color: #bbb; }
+    .settle-person .s-name { font-size: 0.82rem; font-weight: 700; }
+    .settle-person .s-bal { font-size: 1.05rem; font-weight: 800; margin-top: 4px; }
+    .settle-person.creditor .s-bal { color: var(--green); }
+    .settle-person.debtor .s-bal { color: var(--red); }
+    .settle-person.zero .s-bal { color: #aaa; }
+    .settle-person .s-label { font-size: 0.67rem; color: var(--text-muted); margin-top: 2px; }
+    .settle-person .s-breakdown {
+      font-size: 0.62rem;
+      color: #aaa;
+      margin-top: 5px;
+      line-height: 1.5;
+      text-align: left;
+      border-top: 1px dashed #eee;
+      padding-top: 5px;
+    }
+
+    .tx-list { list-style: none; }
+    .tx-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 14px;
+      background: #fff;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      box-shadow: var(--shadow);
+      font-size: 0.88rem;
+    }
+    .tx-from { font-weight: 700; color: var(--red); }
+    .tx-arrow { color: #aaa; font-size: 1.1rem; }
+    .tx-to { font-weight: 700; color: var(--green); }
+    .tx-amount { margin-left: auto; font-weight: 800; font-size: 0.95rem; color: var(--accent); white-space: nowrap; }
+
+    .empty-state { text-align: center; padding: 32px 16px; color: var(--text-muted); font-size: 0.88rem; }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 8px; }
+
+    /* ── Bill title section ── */
+    .bill-title-bar {
+      background: var(--green-bg);
+      border: 1.5px solid var(--green-border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .bill-title-bar input { border: none; background: transparent; font-size: 1rem; font-weight: 700; color: var(--green); flex: 1; outline: none; }
+    .bill-title-bar input::placeholder { color: #aaa; font-weight: 400; }
+
+    /* ── Hint ── */
+    .hint { font-size: 0.74rem; color: var(--text-muted); margin-top: 4px; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #222;
+      color: #fff;
+      padding: 10px 22px;
+      border-radius: 24px;
+      font-size: 0.84rem;
+      font-weight: 600;
+      z-index: 9999;
+      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Responsive ── */
+    @media (max-width: 480px) {
+      .form-row > * { min-width: 100%; }
+      .settle-summary { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>💰 分帳程式</h1>
+    <div class="sub">輕鬆計算、一鍵結算</div>
+  </div>
+</header>
+
+<nav class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('members')">👥 成員</button>
+  <button class="tab-btn" onclick="switchTab('pool')">🏦 公費池</button>
+  <button class="tab-btn" onclick="switchTab('expenses')">🧾 費用</button>
+  <button class="tab-btn" onclick="switchTab('settle')">💸 結算</button>
+</nav>
+
+<!-- ═══════════════════════════ 成員 ═══════════════════════════ -->
+<div id="tab-members" class="tab-content active">
+
+  <div class="bill-title-bar">
+    <span>📋</span>
+    <input id="bill-title" placeholder="輸入帳單名稱（如：2025善化美食之旅）" />
+  </div>
+
+  <div class="card">
+    <div class="card-title">➕ 新增成員</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>姓名 / 暱稱</label>
+        <input id="member-input" type="text" placeholder="例：小明" maxlength="20"
+          onkeydown="if(event.key==='Enter')addMember()" />
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="addMember()">➕ 加入</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">👥 目前成員（<span id="member-count">0</span> 人）</div>
+    <div class="member-list" id="member-list">
+      <div class="empty-state"><div class="icon">👤</div>尚未新增任何成員</div>
+    </div>
+  </div>
+
+  <div class="card" style="background:var(--green-bg);border:1.5px solid var(--green-border)">
+    <div style="font-size:0.8rem;color:var(--green);font-weight:700;margin-bottom:8px">💡 使用說明</div>
+    <ul style="font-size:0.78rem;color:#555;line-height:1.9;padding-left:16px">
+      <li>先在「成員」頁新增所有參與者</li>
+      <li>「公費池」頁輸入各人繳的公費，系統自動平分</li>
+      <li>「費用」頁記錄每筆個人代墊的花費</li>
+      <li>「結算」頁整合所有帳目，給出最少付款方案</li>
+      <li>資料自動存在瀏覽器，關閉不消失</li>
+    </ul>
+  </div>
+
+  <button class="btn btn-danger btn-full" onclick="clearAll()" style="margin-top:4px">
+    🗑 清除所有資料（重新開始）
+  </button>
+</div>
+
+<!-- ═══════════════════════════ 公費池 ═══════════════════════════ -->
+<div id="tab-pool" class="tab-content">
+
+  <div class="card pool-card">
+    <div class="card-title pool">🏦 公費池 — 個人公費輸入</div>
+    <p class="hint" style="margin-bottom:12px">每位成員輸入自己繳入公費池的金額，系統會自動計算每人應分攤份額，並整合進最終結算。</p>
+
+    <div id="pool-member-rows">
+      <div class="empty-state"><div class="icon">👥</div>請先在「成員」頁新增成員</div>
+    </div>
+
+    <div class="pool-summary" id="pool-summary" style="display:none">
+      <span>📥 總公費：<strong id="pool-total-display">$0</strong></span>
+      <span>👤 人均應繳：<strong id="pool-per-display">$0</strong></span>
+      <span>👥 分攤人數：<strong id="pool-members-display">0</strong> 人</span>
+    </div>
+  </div>
+
+  <div class="card" style="background:var(--pool-bg);border:1.5px solid var(--pool-border)">
+    <div style="font-size:0.8rem;color:var(--pool);font-weight:700;margin-bottom:8px">📖 公費池說明</div>
+    <ul style="font-size:0.78rem;color:#555;line-height:1.9;padding-left:16px">
+      <li>公費池：大家共同出資的公共費用（如旅遊基金、聚餐會費）</li>
+      <li>每人輸入自己「實際繳入」的金額</li>
+      <li>系統計算總金額 ÷ 人數 = 每人應分攤額</li>
+      <li>繳多了 → 應收回差額；繳少了 → 需補繳差額</li>
+      <li>此帳目會自動加入最終結算，無須手動建立費用</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ 費用 ═══════════════════════════ -->
+<div id="tab-expenses" class="tab-content">
+
+  <div class="card">
+    <div class="card-title">➕ 新增費用</div>
+    <div class="form-group">
+      <label>費用名稱</label>
+      <input id="exp-name" type="text" placeholder="例：鹽水虱目魚粥、計程車費…" maxlength="30" />
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>金額（元）</label>
+        <input id="exp-amount" type="number" min="0" step="1" placeholder="0" />
+      </div>
+      <div class="form-group">
+        <label>付款人</label>
+        <select id="exp-payer"></select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>分攤對象</label>
+      <div class="hint">未選擇 = 全部成員平分</div>
+      <div class="chip-group" id="exp-participants"></div>
+    </div>
+    <button class="btn btn-primary btn-full" onclick="addExpense()" style="margin-top:4px">✅ 新增費用</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🧾 費用記錄（<span id="exp-count">0</span> 筆，共 <span id="exp-total">$0</span>）</div>
+    <div id="expense-list">
+      <div class="empty-state"><div class="icon">🧾</div>尚無費用記錄<br>請先新增成員再新增費用</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════ 結算 ═══════════════════════════ -->
+<div id="tab-settle" class="tab-content">
+
+  <div class="card">
+    <div class="card-title">📊 各人結餘</div>
+    <p class="hint" style="margin-bottom:10px">整合「公費池」及「費用記錄」的綜合結算</p>
+    <div id="settle-summary" class="settle-summary">
+      <div class="empty-state" style="grid-column:1/-1"><div class="icon">📊</div>請先新增費用或公費</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">💸 最少付款方案</div>
+    <p class="hint" style="margin-bottom:10px">已最佳化，用最少筆交易完成結算</p>
+    <ul class="tx-list" id="tx-list">
+      <li class="empty-state"><div class="icon">✅</div>暫無需要付款的交易</li>
+    </ul>
+    <button class="btn btn-outline btn-full" onclick="copyResult()" style="margin-top:12px">📋 複製結算結果</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ══════════════════════════════════
+   STATE
+══════════════════════════════════ */
+const PALETTE = ['#e53935','#e67e22','#2e7d32','#1565c0','#8e24aa','#00897b','#f4511e','#6d4c41','#0097a7','#d81b60'];
+
+let state = {
+  billTitle: '',
+  members: [],   // [{ id, name }]
+  expenses: [],  // [{ id, name, amount, payerId, participantIds }]
+  pool: {},      // { memberId: amount }  — each person's contribution to common pool
+};
+
+let nextMemberId = 1;
+let nextExpenseId = 1;
+
+/* ══════════════════════════════════
+   PERSIST
+══════════════════════════════════ */
+function save() {
+  localStorage.setItem('splitapp_v3', JSON.stringify({ state, nextMemberId, nextExpenseId }));
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem('splitapp_v3');
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    state = d.state || state;
+    if (!state.pool) state.pool = {};
+    nextMemberId = d.nextMemberId || 1;
+    nextExpenseId = d.nextExpenseId || 1;
+  } catch(_) {}
+}
+
+/* ══════════════════════════════════
+   TAB
+══════════════════════════════════ */
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  [...document.querySelectorAll('.tab-btn')].find(b => b.getAttribute('onclick').includes("'" + name + "'")).classList.add('active');
+  if (name === 'pool') renderPoolTab();
+  if (name === 'expenses') renderExpenseForm();
+  if (name === 'settle') renderSettle();
+}
+
+/* ══════════════════════════════════
+   UTILS
+══════════════════════════════════ */
+function memberColor(id) {
+  const idx = state.members.findIndex(m => m.id === id);
+  return PALETTE[idx % PALETTE.length];
+}
+
+function fmt(n) {
+  if (n === Math.floor(n)) return n.toString();
+  return n.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function avatar(m, size = 28) {
+  const color = memberColor(m.id);
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.45)}px;font-weight:700;color:#fff;background:${color};flex-shrink:0">${m.name[0]}</div>`;
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+/* ══════════════════════════════════
+   MEMBERS
+══════════════════════════════════ */
+function addMember() {
+  const input = document.getElementById('member-input');
+  const name = input.value.trim();
+  if (!name) { toast('請輸入姓名'); return; }
+  if (state.members.some(m => m.name === name)) { toast('姓名重複'); return; }
+  const id = nextMemberId++;
+  state.members.push({ id, name });
+  state.pool[id] = 0;
+  input.value = '';
+  save();
+  renderMembers();
+  toast('已新增：' + name);
+}
+
+function removeMember(id) {
+  const hasExp = state.expenses.some(e => e.payerId === id || e.participantIds.includes(id));
+  if (hasExp && !confirm('此成員有相關費用記錄，刪除後費用也會更新，確定刪除嗎？')) return;
+  state.members = state.members.filter(m => m.id !== id);
+  delete state.pool[id];
+  state.expenses = state.expenses.filter(e => {
+    if (e.payerId === id) return false;
+    e.participantIds = e.participantIds.filter(p => p !== id);
+    return e.participantIds.length > 0;
+  });
+  save();
+  renderMembers();
+  toast('已移除成員');
+}
+
+function renderMembers() {
+  const list = document.getElementById('member-list');
+  document.getElementById('member-count').textContent = state.members.length;
+
+  if (state.members.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">👤</div>尚未新增任何成員</div>';
+    return;
+  }
+  list.innerHTML = '';
+  state.members.forEach(m => {
+    const tag = document.createElement('div');
+    tag.className = 'member-tag';
+    tag.innerHTML = `
+      <div class="avatar" style="background:${memberColor(m.id)}">${m.name[0]}</div>
+      ${escHtml(m.name)}
+      <button class="del-btn" onclick="removeMember(${m.id})" title="移除">✕</button>`;
+    list.appendChild(tag);
+  });
+}
+
+/* ══════════════════════════════════
+   BILL TITLE
+══════════════════════════════════ */
+document.getElementById('bill-title').addEventListener('input', function() {
+  state.billTitle = this.value;
+  save();
+});
+
+/* ══════════════════════════════════
+   POOL TAB
+══════════════════════════════════ */
+function renderPoolTab() {
+  const rows = document.getElementById('pool-member-rows');
+  const summary = document.getElementById('pool-summary');
+
+  if (state.members.length === 0) {
+    rows.innerHTML = '<div class="empty-state"><div class="icon">👥</div>請先在「成員」頁新增成員</div>';
+    summary.style.display = 'none';
+    return;
+  }
+
+  rows.innerHTML = '';
+  state.members.forEach(m => {
+    const val = state.pool[m.id] || 0;
+    const row = document.createElement('div');
+    row.className = 'pool-member-row';
+    row.innerHTML = `
+      <div class="pool-member-name">
+        ${avatar(m, 26)}
+        ${escHtml(m.name)}
+      </div>
+      <input type="number" min="0" step="1" placeholder="0"
+        value="${val > 0 ? val : ''}"
+        id="pool-input-${m.id}"
+        oninput="updatePool(${m.id}, this.value)" />
+      <span class="pool-share-label" id="pool-share-${m.id}"></span>`;
+    rows.appendChild(row);
+  });
+
+  updatePoolSummary();
+}
+
+function updatePool(memberId, rawVal) {
+  const val = parseFloat(rawVal) || 0;
+  state.pool[memberId] = val;
+  save();
+  updatePoolSummary();
+}
+
+function updatePoolSummary() {
+  const total = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  const n = state.members.length;
+  const perPerson = n > 0 ? total / n : 0;
+
+  state.members.forEach(m => {
+    const contributed = state.pool[m.id] || 0;
+    const diff = contributed - perPerson;
+    const el = document.getElementById('pool-share-' + m.id);
+    if (!el) return;
+    if (total === 0) {
+      el.textContent = '';
+    } else if (Math.abs(diff) < 0.005) {
+      el.textContent = '✅ 已平衡';
+      el.style.color = '#43a047';
+    } else if (diff > 0) {
+      el.textContent = `應收 $${fmt(diff)}`;
+      el.style.color = 'var(--green)';
+    } else {
+      el.textContent = `應補 $${fmt(-diff)}`;
+      el.style.color = 'var(--red)';
+    }
+  });
+
+  const summary = document.getElementById('pool-summary');
+  if (total > 0) {
+    summary.style.display = 'flex';
+    document.getElementById('pool-total-display').textContent = '$' + fmt(total);
+    document.getElementById('pool-per-display').textContent = '$' + fmt(perPerson);
+    document.getElementById('pool-members-display').textContent = n;
+  } else {
+    summary.style.display = 'none';
+  }
+}
+
+/* ══════════════════════════════════
+   EXPENSES – FORM
+══════════════════════════════════ */
+let selectedParticipants = new Set();
+
+function renderExpenseForm() {
+  const payerSel = document.getElementById('exp-payer');
+  const chips = document.getElementById('exp-participants');
+
+  payerSel.innerHTML = state.members.length
+    ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
+    : '<option value="">（請先新增成員）</option>';
+
+  chips.innerHTML = '';
+  if (state.members.length === 0) {
+    chips.innerHTML = '<span style="font-size:0.78rem;color:#aaa">請先在成員頁新增人員</span>';
+    return;
+  }
+
+  const allChip = document.createElement('span');
+  allChip.className = 'chip all-chip';
+  allChip.textContent = '全部';
+  allChip.onclick = () => { selectedParticipants.clear(); updateChips(); };
+  chips.appendChild(allChip);
+
+  state.members.forEach(m => {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (selectedParticipants.has(m.id) ? ' selected' : '');
+    chip.dataset.id = m.id;
+    chip.textContent = m.name;
+    chip.onclick = () => {
+      if (selectedParticipants.has(m.id)) selectedParticipants.delete(m.id);
+      else selectedParticipants.add(m.id);
+      updateChips();
+    };
+    chips.appendChild(chip);
+  });
+  updateChips();
+}
+
+function updateChips() {
+  const chips = document.getElementById('exp-participants');
+  const allChip = chips.querySelector('.all-chip');
+  const all = selectedParticipants.size === 0;
+  if (allChip) allChip.classList.toggle('selected', all);
+  chips.querySelectorAll('.chip:not(.all-chip)').forEach(c => {
+    c.classList.toggle('selected', selectedParticipants.has(parseInt(c.dataset.id)));
+  });
+}
+
+function addExpense() {
+  if (state.members.length < 2) { toast('請先新增至少 2 位成員'); return; }
+  const name = document.getElementById('exp-name').value.trim();
+  const amount = parseFloat(document.getElementById('exp-amount').value);
+  const payerId = parseInt(document.getElementById('exp-payer').value);
+
+  if (!name) { toast('請輸入費用名稱'); return; }
+  if (!amount || amount <= 0) { toast('請輸入有效金額'); return; }
+  if (!payerId) { toast('請選擇付款人'); return; }
+
+  const participantIds = selectedParticipants.size > 0
+    ? [...selectedParticipants]
+    : state.members.map(m => m.id);
+
+  if (!participantIds.includes(payerId)) participantIds.push(payerId);
+
+  state.expenses.push({ id: nextExpenseId++, name, amount, payerId, participantIds });
+  document.getElementById('exp-name').value = '';
+  document.getElementById('exp-amount').value = '';
+  selectedParticipants.clear();
+  save();
+  renderExpenses();
+  renderExpenseForm();
+  toast(`已新增：${name} $${amount}`);
+}
+
+function removeExpense(id) {
+  state.expenses = state.expenses.filter(e => e.id !== id);
+  save();
+  renderExpenses();
+}
+
+function renderExpenses() {
+  const list = document.getElementById('expense-list');
+  document.getElementById('exp-count').textContent = state.expenses.length;
+  const total = state.expenses.reduce((s, e) => s + e.amount, 0);
+  document.getElementById('exp-total').textContent = '$' + fmt(total);
+
+  if (state.expenses.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">🧾</div>尚無費用記錄<br>請先新增成員再新增費用</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  [...state.expenses].reverse().forEach(e => {
+    const payer = state.members.find(m => m.id === e.payerId);
+    const parts = e.participantIds.map(pid => state.members.find(m => m.id === pid)?.name).filter(Boolean);
+    const share = e.amount / e.participantIds.length;
+    const item = document.createElement('div');
+    item.className = 'expense-item';
+    item.innerHTML = `
+      <div class="expense-header">
+        <div style="flex:1;min-width:0">
+          <div class="expense-name">${escHtml(e.name)}</div>
+          <div class="expense-meta">
+            由 <strong style="color:${payer ? memberColor(payer.id) : '#888'}">${payer ? escHtml(payer.name) : '（已刪除）'}</strong> 付款
+            ・每人 $${fmt(share)}
+          </div>
+          <div class="expense-participants">分攤：${parts.map(escHtml).join('、')}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+          <div class="expense-amount">$${fmt(e.amount)}</div>
+          <button class="btn btn-danger btn-sm" onclick="removeExpense(${e.id})">刪除</button>
+        </div>
+      </div>`;
+    list.appendChild(item);
+  });
+}
+
+/* ══════════════════════════════════
+   SETTLEMENT ALGORITHM
+══════════════════════════════════ */
+function computeBalances() {
+  const bal = {};
+  state.members.forEach(m => bal[m.id] = 0);
+  const expBal = {};
+  const poolBal = {};
+  state.members.forEach(m => { expBal[m.id] = 0; poolBal[m.id] = 0; });
+
+  // Regular expenses
+  state.expenses.forEach(e => {
+    const parts = e.participantIds.filter(id => bal[id] !== undefined);
+    if (parts.length === 0) return;
+    const share = e.amount / parts.length;
+    if (bal[e.payerId] !== undefined) {
+      bal[e.payerId] += e.amount;
+      expBal[e.payerId] += e.amount;
+    }
+    parts.forEach(id => {
+      bal[id] -= share;
+      expBal[id] -= share;
+    });
+  });
+
+  // Pool: each person's net from pool = contributed - (total / n)
+  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  const n = state.members.length;
+  if (poolTotal > 0 && n > 0) {
+    const perPerson = poolTotal / n;
+    state.members.forEach(m => {
+      const contributed = state.pool[m.id] || 0;
+      const net = contributed - perPerson;
+      bal[m.id] += net;
+      poolBal[m.id] += net;
+    });
+  }
+
+  return { bal, expBal, poolBal, poolTotal, poolPerPerson: n > 0 ? poolTotal / n : 0 };
+}
+
+function minimizeTransactions(balances) {
+  const creditors = [], debtors = [];
+  Object.entries(balances).forEach(([id, b]) => {
+    const v = Math.round(b * 100) / 100;
+    if (v > 0.005) creditors.push({ id: parseInt(id), amount: v });
+    else if (v < -0.005) debtors.push({ id: parseInt(id), amount: -v });
+  });
+  creditors.sort((a, b) => b.amount - a.amount);
+  debtors.sort((a, b) => b.amount - a.amount);
+
+  const txs = [];
+  let ci = 0, di = 0;
+  while (ci < creditors.length && di < debtors.length) {
+    const c = creditors[ci], d = debtors[di];
+    const amount = Math.min(c.amount, d.amount);
+    txs.push({ from: d.id, to: c.id, amount: Math.round(amount * 100) / 100 });
+    c.amount -= amount;
+    d.amount -= amount;
+    if (c.amount < 0.005) ci++;
+    if (d.amount < 0.005) di++;
+  }
+  return txs;
+}
+
+function renderSettle() {
+  const summaryEl = document.getElementById('settle-summary');
+  const txListEl = document.getElementById('tx-list');
+
+  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0);
+
+  if (!hasData) {
+    summaryEl.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📊</div>請先新增費用或公費</div>';
+    txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>暫無需要付款的交易</li>';
+    return;
+  }
+
+  const { bal, expBal, poolBal } = computeBalances();
+  const txs = minimizeTransactions(bal);
+
+  summaryEl.innerHTML = '';
+  state.members.forEach(m => {
+    const b = Math.round((bal[m.id] || 0) * 100) / 100;
+    const eb = Math.round((expBal[m.id] || 0) * 100) / 100;
+    const pb = Math.round((poolBal[m.id] || 0) * 100) / 100;
+    const cls = b > 0.005 ? 'creditor' : b < -0.005 ? 'debtor' : 'zero';
+    const label = b > 0.005 ? '應收' : b < -0.005 ? '應付' : '已結清';
+    const sign = b > 0 ? '+' : '';
+
+    let breakdown = '';
+    if (state.expenses.length > 0 && poolTotal > 0) {
+      const esign = eb > 0 ? '+' : '';
+      const psign = pb > 0 ? '+' : '';
+      breakdown = `<div class="s-breakdown">費用：${esign}$${fmt(Math.abs(eb))}<br>公費池：${psign}$${fmt(Math.abs(pb))}</div>`;
+    }
+
+    const el = document.createElement('div');
+    el.className = `settle-person ${cls}`;
+    el.innerHTML = `
+      ${avatar(m, 32).replace('>', ' style="margin:0 auto 6px">')}
+      <div class="s-name">${escHtml(m.name)}</div>
+      <div class="s-bal">${sign}$${fmt(Math.abs(b))}</div>
+      <div class="s-label">${label}</div>
+      ${breakdown}`;
+    summaryEl.appendChild(el);
+  });
+
+  if (txs.length === 0) {
+    txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>所有人已結清，無需轉帳！</li>';
+    return;
+  }
+  txListEl.innerHTML = '';
+  txs.forEach(tx => {
+    const from = state.members.find(m => m.id === tx.from);
+    const to = state.members.find(m => m.id === tx.to);
+    const li = document.createElement('li');
+    li.className = 'tx-item';
+    li.innerHTML = `
+      ${from ? avatar(from, 28) : ''}
+      <span class="tx-from">${from ? escHtml(from.name) : '?'}</span>
+      <span class="tx-arrow">→</span>
+      <span class="tx-to">${to ? escHtml(to.name) : '?'}</span>
+      ${to ? avatar(to, 28) : ''}
+      <span class="tx-amount">$${fmt(tx.amount)}</span>`;
+    txListEl.appendChild(li);
+  });
+}
+
+/* ══════════════════════════════════
+   COPY RESULT
+══════════════════════════════════ */
+function copyResult() {
+  if (state.expenses.length === 0 && Object.values(state.pool).every(v => v === 0)) {
+    toast('沒有資料可複製'); return;
+  }
+  const { bal } = computeBalances();
+  const txs = minimizeTransactions(bal);
+  const title = state.billTitle || '分帳結算';
+  const expTotal = state.expenses.reduce((s, e) => s + e.amount, 0);
+  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+
+  let text = `【${title}】\n`;
+  if (expTotal > 0) text += `費用合計：$${fmt(expTotal)}（${state.expenses.length} 筆）\n`;
+  if (poolTotal > 0) text += `公費池合計：$${fmt(poolTotal)}（每人 $${fmt(poolTotal / state.members.length)}）\n`;
+  text += `\n各人結餘：\n`;
+  state.members.forEach(m => {
+    const b = Math.round((bal[m.id] || 0) * 100) / 100;
+    const sign = b >= 0 ? '+' : '';
+    text += `  ${m.name}：${sign}$${fmt(Math.abs(b))}\n`;
+  });
+  text += `\n轉帳清單：\n`;
+  if (txs.length === 0) {
+    text += `  所有人已結清！\n`;
+  } else {
+    txs.forEach(tx => {
+      const from = state.members.find(m => m.id === tx.from)?.name || '?';
+      const to = state.members.find(m => m.id === tx.to)?.name || '?';
+      text += `  ${from} → ${to}：$${fmt(tx.amount)}\n`;
+    });
+  }
+
+  navigator.clipboard.writeText(text).then(() => toast('已複製到剪貼簿')).catch(() => toast('複製失敗，請手動複製'));
+}
+
+/* ══════════════════════════════════
+   CLEAR ALL
+══════════════════════════════════ */
+function clearAll() {
+  if (!confirm('確定要清除所有資料嗎？此操作無法復原。')) return;
+  state = { billTitle: '', members: [], expenses: [], pool: {} };
+  nextMemberId = 1;
+  nextExpenseId = 1;
+  selectedParticipants.clear();
+  document.getElementById('bill-title').value = '';
+  save();
+  renderMembers();
+  renderExpenses();
+  toast('已清除所有資料');
+}
+
+/* ══════════════════════════════════
+   INIT
+══════════════════════════════════ */
+load();
+document.getElementById('bill-title').value = state.billTitle || '';
+renderMembers();
+renderExpenses();
+</script>
+</body>
+</html>

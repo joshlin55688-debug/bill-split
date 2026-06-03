@@ -56,7 +56,7 @@
   .ticker{display:flex;gap:14px;flex-wrap:wrap;background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:11px;margin-top:8px}
   .ticker .k{color:var(--ink3)} .ticker .v{font-weight:700}
   canvas{width:100%;display:block;background:#070a10;border:1px solid var(--line);border-radius:8px}
-  #arena{height:96px;margin:8px 0;image-rendering:pixelated;background:linear-gradient(180deg,#0b1320 0%,#0e1826 70%,#0a121c 100%)}
+  #arena{height:128px;margin:8px 0;image-rendering:pixelated;background:linear-gradient(180deg,#0b1320 0%,#0e1826 70%,#0a121c 100%)}
   .cdRow{display:flex;justify-content:space-between;align-items:center;background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:8px}
   .cdRow .cd{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:1px}
   /* controls */
@@ -147,7 +147,7 @@
           <div class="mh"><span class="dot" id="liveDot"></span>即時戰情終端機 <small id="tacLabel">平衡型</small></div>
           <div class="depthRow">深淵 <b id="depthNum">第 0 層</b><span style="margin-left:auto" id="depthRecord">最深 0 層</span></div>
           <div class="pbar"><i id="depthBar" style="width:0%"></i><div class="pct" id="depthPct">待命</div></div>
-          <canvas id="arena" height="96"></canvas>
+          <canvas id="arena" height="128"></canvas>
           <div class="log" id="log"></div>
           <div class="ticker" id="ticker"></div>
           <div class="ctrlRow">
@@ -344,6 +344,7 @@ function fresh(){
     depth:0, maxDepth:0, hpPct:100, running:false,
     tactic:'balanced', customHp:25, agg:false, farm:false,
     roster:[], party:[], inv:[], nextId:1,
+    carry:{gold:0,exp:0,drops:0,items:[]},
     tavern:[], refreshCount:0,
     log:[], bossLog:[],
     goldHist:[], hpCandles:[], lastGoldTotal:0, goldRateAcc:0, goldRateTimer:Date.now(),
@@ -402,7 +403,7 @@ function retreatThreshold(){
 function tacLabelText(){return {conservative:'保守型',balanced:'平衡型',aggressive:'激進型',custom:'自訂邏輯'}[S.tactic];}
 
 /* ---------- 敵人 / 戰鬥核心 ---------- */
-function enemyPower(depth){return Math.round(38*Math.pow(1.155,depth)+depth*9+30);}
+function enemyPower(depth){return Math.round(12*Math.pow(1.16,depth)+depth*4+6);}
 function envMult(depth){return 1+depth*0.01;} // 環境乘區
 
 // 一場戰鬥；silent=true 用於離線批次（不寫 log）。回傳事件物件。
@@ -418,16 +419,13 @@ function combatStep(silent){
   S.hpPct=clamp(S.hpPct-hpLoss,0,100);
   const ev={win,ep,tp,winRate,hpLoss,startHp,gold:0,drop:null,depth:S.depth};
   if(win){
-    let gold=ep*0.5*(1+ts.sp.greed);
-    gold=Math.round(gold);
-    S.gold+=gold; S.stats.goldTotal+=gold; S.goldRateAcc+=gold; ev.gold=gold;
+    let gold=Math.round(ep*0.5*(1+ts.sp.greed));
+    S.carry.gold+=gold; S.goldRateAcc+=gold; ev.gold=gold;   // 攜帶中，撤退才入袋
     S.stats.kills++;
-    // exp
-    S.party.forEach(id=>{const a=S.roster.find(x=>x.id===id);if(a){gainExp(a,Math.round(ep*0.25));}});
-    // drop
+    S.carry.exp+=Math.round(ep*0.25);
     const baseDrop=0.06;
     const dropRate=baseDrop*(1+ts.luk/100)*(1+ts.sp.fortune)*envMult(S.depth);
-    if(Math.random()<dropRate){const it=rollItem(S.depth);S.inv.push(it);S.stats.drops++;ev.drop=it;}
+    if(Math.random()<dropRate){const it=rollItem(S.depth);S.carry.items.push(it);S.carry.drops++;ev.drop=it;}
     // 下潛 or farm
     if(!(S.farm && S.depth>=S.maxDepth)){S.depth++; if(S.depth>S.maxDepth)S.maxDepth=S.depth;}
   }
@@ -517,27 +515,37 @@ function renderLog(){const el=$('#log');el.innerHTML=S.log.slice(-80).map(l=>`<d
 function startRun(){
   if(S.party.length===0){toast('請先到「隊伍/酒館」上陣冒險者');return;}
   if(teamPower()<=0){toast('隊伍戰力為 0');return;}
-  S.running=true; if(S.hpPct<=retreatThreshold())S.hpPct=100;
-  pushLog(`<span class="g">▶ 遠征開始 — ${tacLabelText()}，撤退線 HP ${retreatThreshold()}%</span>`);
+  S.running=true; S.hpPct=100; S.depth=0; S.carry={gold:0,exp:0,drops:0,items:[]};
+  pushLog(`<span class="g">▶ 遠征開始 — ${tacLabelText()}，停損線 HP ${retreatThreshold()}%。越深攜帶越多，但全滅會失去全部！</span>`);
   refreshDash();save();
 }
 function stopRun(){S.running=false;refreshDash();}
+function bankCarry(){
+  const c=S.carry;
+  S.gold+=c.gold; S.stats.goldTotal+=c.gold;
+  S.party.forEach(id=>{const a=S.roster.find(x=>x.id===id);if(a)gainExp(a,c.exp);});
+  c.items.forEach(it=>S.inv.push(it)); S.stats.drops+=c.drops;
+  const sum={gold:c.gold,items:c.items.length};
+  S.carry={gold:0,exp:0,drops:0,items:[]};
+  return sum;
+}
+function loseCarry(){const s={gold:S.carry.gold,items:S.carry.items.length};S.carry={gold:0,exp:0,drops:0,items:[]};return s;}
 function retreatNow(auto){
   if(!S.running){toast('目前未在遠征');return;}
   S.running=false; S.stats.retreats++;
-  const banked=Math.round(S.depth*5); // 撤退獎勵（深度紅利）
-  S.gold+=banked;
-  pushLog(`<span class="y">■ 撤退結算：抵達第 ${S.depth} 層，深度紅利 +${banked}G。隊伍休整回滿。</span>`);
-  S.hpPct=100;
+  const reached=S.depth, sum=bankCarry();
+  pushLog(`<span class="y">■ 停利結算：抵達第 ${reached} 層，安全帶回 +${fmt(sum.gold)}G、裝備 ${sum.items} 件入袋。隊伍休整回滿，返回地表。</span>`);
+  S.hpPct=100; S.depth=0;
+  if($('#v-gear').classList.contains('on'))renderGear();
   refreshDash();save();
 }
 function wipeNow(){
   S.running=false; S.stats.retreats++;
-  const lost=Math.floor(S.gold*0.10);
-  S.gold-=lost; const fromDepth=S.depth; S.depth=0; S.hpPct=100;
-  pushLog(`<span class="r">　└ 在第 ${fromDepth} 層被擊潰：維修與復活損失 -${fmt(lost)}G，被迫返回地表（最深紀錄 ${S.maxDepth} 保留）。</span>`);
+  const reached=S.depth, lost=loseCarry();
+  S.hpPct=100; S.depth=0;
+  pushLog(`<span class="r">　└ 在第 ${reached} 層被擊潰！喪失本次攜帶的全部戰利品（${fmt(lost.gold)}G、${lost.items} 件裝備），退回地表（最深紀錄 ${S.maxDepth} 保留）。</span>`);
   if(typeof arenaWipe==='function')arenaWipe();
-  toast(`💀 全滅！損失 ${fmt(lost)}G，退回第 0 層`);
+  toast(`💀 全滅！失去攜帶的 ${fmt(lost.gold)}G 與 ${lost.items} 件裝備`);
   refreshDash();save();
 }
 
@@ -550,8 +558,8 @@ function offline(){
   for(let i=0;i<ticks;i++){
     const ev=combatStep(true);
     if(ev.none)break;
-    if(ev.wipe){const lost=Math.floor(S.gold*0.10);S.gold-=lost;S.depth=0;S.hpPct=100;S.stats.retreats++;retreats++;}
-    else if(ev.retreat){const banked=Math.round(S.depth*5);S.gold+=banked;S.stats.retreats++;S.hpPct=100;retreats++;}
+    if(ev.wipe){loseCarry();S.depth=0;S.hpPct=100;S.stats.retreats++;retreats++;}
+    else if(ev.retreat){bankCarry();S.depth=0;S.hpPct=100;S.stats.retreats++;retreats++;}
   }
   const gain=S.gold-g0, kills=S.stats.kills-k0, drops=S.stats.drops-d0;
   setTimeout(()=>{
@@ -584,6 +592,7 @@ function refreshDash(){
     `<span><span class="k">戰力 </span><span class="v c">${fmt(tp)}</span></span>`+
     `<span><span class="k">敵方 </span><span class="v dim">${fmt(ep)}</span></span>`+
     `<span><span class="k">勝率 </span><span class="v y">${wr}%</span></span>`+
+    `<span><span class="k">💼攜帶 </span><span class="v g">${fmt(S.carry.gold)}G·${S.carry.items.length}件</span></span>`+
     `<span><span class="k">狀態 </span><span class="v ${activeAgg()?'r':'b'}">${activeAgg()?'激進型交戰':tacLabelText()}</span></span>`;
   renderLog();
 }
@@ -1002,10 +1011,10 @@ function arenaLoop(){
     ctx.fillStyle='#0a121c';ctx.fillRect(0,H-13,W,13);
     ctx.fillStyle='#16263a';for(let x=(AR.t/2%12)-12;x<W;x+=12)ctx.fillRect(x,H-13,6,3);
     if(AR.heroes.length===0&&S.party.length>0)syncHeroes();
-    const sc=4, baseY=H-13-HERO_MAP.length*sc;
+    const sc=6, baseY=H-13-HERO_MAP.length*sc;
     AR.heroes.forEach((h,i)=>{
-      const bob=Math.sin(AR.t*0.08+i)*1.4;
-      const px=14+i*32+h.atk*12, py=baseY+bob;
+      const bob=Math.sin(AR.t*0.08+i)*1.8;
+      const px=12+i*52+h.atk*16, py=baseY+bob;
       h.atk=Math.max(0,h.atk-0.06); h.hurt=Math.max(0,h.hurt-0.05);
       ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.ellipse(px+4*sc,H-11,3.2*sc,sc*0.9,0,0,7);ctx.fill();
       const flash=(h.hurt>0&&Math.floor(AR.t/4)%2);
@@ -1016,7 +1025,7 @@ function arenaLoop(){
     });
     if(AR.heroes.length===0){ctx.fillStyle='#566275';ctx.font='11px monospace';ctx.fillText('（隊伍未上陣）',22,H/2);}
     if(AR.mon){
-      const m=AR.mon, msc=4*m.size;
+      const m=AR.mon, msc=6*m.size;
       const shakeX=m.shake>0?(Math.random()-0.5)*6:0; m.shake=Math.max(0,m.shake-0.08);
       let alpha=1, drop=0;
       if(m.dying>0){m.dying+=0.045;alpha=Math.max(0,1-m.dying);drop=m.dying*12;if(m.dying>=1)spawnMonster();}
@@ -1039,7 +1048,7 @@ function arenaLoop(){
 function init(){
   const had=load();
   if(!had){ // 新玩家：送一名戰士
-    const starter=newAdv('warrior');starter.name='隊長 '+starter.name;S.roster.push(starter);S.party.push(starter.id);
+    const starter=newAdv('warrior');starter.name='隊長 '+starter.name;starter.lv=3;S.roster.push(starter);S.party.push(starter.id);
     S.tavern=[];ensureTavern();
     S.log.push('<span class="c">歡迎來到遠征儀表板。已配發 1 名戰士，點「▶ 開始遠征」開始自動化挖礦。</span>');
     genLeaderboard();

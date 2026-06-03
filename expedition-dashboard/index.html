@@ -56,6 +56,7 @@
   .ticker{display:flex;gap:14px;flex-wrap:wrap;background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:11px;margin-top:8px}
   .ticker .k{color:var(--ink3)} .ticker .v{font-weight:700}
   canvas{width:100%;display:block;background:#070a10;border:1px solid var(--line);border-radius:8px}
+  #arena{height:96px;margin:8px 0;image-rendering:pixelated;background:linear-gradient(180deg,#0b1320 0%,#0e1826 70%,#0a121c 100%)}
   .cdRow{display:flex;justify-content:space-between;align-items:center;background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:8px}
   .cdRow .cd{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:1px}
   /* controls */
@@ -146,6 +147,7 @@
           <div class="mh"><span class="dot" id="liveDot"></span>即時戰情終端機 <small id="tacLabel">平衡型</small></div>
           <div class="depthRow">深淵 <b id="depthNum">第 0 層</b><span style="margin-left:auto" id="depthRecord">最深 0 層</span></div>
           <div class="pbar"><i id="depthBar" style="width:0%"></i><div class="pct" id="depthPct">待命</div></div>
+          <canvas id="arena" height="96"></canvas>
           <div class="log" id="log"></div>
           <div class="ticker" id="ticker"></div>
           <div class="ctrlRow">
@@ -161,7 +163,7 @@
           <canvas id="goldChart" height="120"></canvas>
         </div>
         <div class="module" style="margin-top:12px">
-          <div class="mh"><span class="dot off"></span>戰力耗損 K 線 <small>每場 HP 開高低收</small></div>
+          <div class="mh"><span class="dot off"></span>戰力耗損折線圖 <small>每場剩餘 HP %</small></div>
           <canvas id="hpChart" height="120"></canvas>
         </div>
         <div class="module" style="margin-top:12px">
@@ -208,6 +210,10 @@
   <!-- GEAR -->
   <div class="view" id="v-gear">
     <div class="hint">字首=固定數值下限｜字尾=百分比/特殊邏輯（吸血、無視防禦…）。5 件同階 → 合成 1 件高階。自動洗鍊可鎖字尾只洗字首。</div>
+    <div class="card" style="margin-bottom:10px">
+      <h4>🧍 隊伍裝備欄 <small class="muted">點任一欄位即可換裝</small></h4>
+      <div id="equipPanel"></div>
+    </div>
     <div class="grid g2">
       <div class="card">
         <h4>🎒 倉庫 <small class="muted" id="invCount"></small></h4>
@@ -426,8 +432,9 @@ function combatStep(silent){
     if(!(S.farm && S.depth>=S.maxDepth)){S.depth++; if(S.depth>S.maxDepth)S.maxDepth=S.depth;}
   }
   ev.endHp=S.hpPct;
-  // 撤退判定
-  if(S.hpPct<=retreatThreshold()){ev.retreat=true;}
+  // 全滅 / 撤退判定
+  if(S.hpPct<=0){ev.wipe=true;}
+  else if(S.hpPct<=retreatThreshold()){ev.retreat=true;}
   return ev;
 }
 function gainExp(a,amt){
@@ -496,8 +503,10 @@ function doLiveFight(){
   }
   // K線：每場一根（開=startHp 收=endHp）
   S.hpCandles.push({o:startHp,c:S.hpPct,h:startHp,l:S.hpPct}); if(S.hpCandles.length>40)S.hpCandles.shift();
+  arenaFight(ev);
   if($('#v-dash').classList.contains('on'))drawHp();
-  if(ev.retreat){pushLog(`<span class="y">▣ 觸發撤退條件 (HP≤${retreatThreshold()}%)，自動結算遠征。</span>`);retreatNow(true);}
+  if(ev.wipe){pushLog(`<span class="r">💀 全滅！隊伍 HP 歸零。</span>`);wipeNow();}
+  else if(ev.retreat){pushLog(`<span class="y">▣ 觸發撤退條件 (HP≤${retreatThreshold()}%)，自動結算遠征。</span>`);retreatNow(true);}
   refreshDash();
   if($('#v-gear').classList.contains('on')&&ev.drop)renderGear();
 }
@@ -522,6 +531,15 @@ function retreatNow(auto){
   S.hpPct=100;
   refreshDash();save();
 }
+function wipeNow(){
+  S.running=false; S.stats.retreats++;
+  const lost=Math.floor(S.gold*0.10);
+  S.gold-=lost; const fromDepth=S.depth; S.depth=0; S.hpPct=100;
+  pushLog(`<span class="r">　└ 在第 ${fromDepth} 層被擊潰：維修與復活損失 -${fmt(lost)}G，被迫返回地表（最深紀錄 ${S.maxDepth} 保留）。</span>`);
+  if(typeof arenaWipe==='function')arenaWipe();
+  toast(`💀 全滅！損失 ${fmt(lost)}G，退回第 0 層`);
+  refreshDash();save();
+}
 
 /* ---------- 離線回測 ---------- */
 function offline(){
@@ -532,8 +550,8 @@ function offline(){
   for(let i=0;i<ticks;i++){
     const ev=combatStep(true);
     if(ev.none)break;
-    if(ev.retreat){const banked=Math.round(S.depth*5);S.gold+=banked;S.stats.retreats++;S.hpPct=100;retreats++;
-      if(S.tactic==='conservative'||S.tactic==='balanced'){/* 自動再出發 */}else{/* 仍續行 */}}
+    if(ev.wipe){const lost=Math.floor(S.gold*0.10);S.gold-=lost;S.depth=0;S.hpPct=100;S.stats.retreats++;retreats++;}
+    else if(ev.retreat){const banked=Math.round(S.depth*5);S.gold+=banked;S.stats.retreats++;S.hpPct=100;retreats++;}
   }
   const gain=S.gold-g0, kills=S.stats.kills-k0, drops=S.stats.drops-d0;
   setTimeout(()=>{
@@ -585,14 +603,23 @@ function drawGold(){
 }
 function drawHp(){
   const cv=$('#hpChart'),x=cv.getContext('2d');const W=cv.width=cv.clientWidth,H=cv.height;
-  x.clearRect(0,0,W,H);const d=S.hpCandles;if(d.length<1){x.fillStyle='#566275';x.font='11px monospace';x.fillText('尚無交戰資料',10,H/2);return;}
-  const pad=10,n=d.length,cw=Math.max(2,(W-2*pad)/n*0.6),step=(W-2*pad)/n;
-  x.strokeStyle='#1c2533';[0,25,50,75,100].forEach(p=>{const y=pad+(H-2*pad)*(1-p/100);x.beginPath();x.moveTo(0,y);x.lineTo(W,y);x.stroke();});
-  d.forEach((c,i)=>{const cx=pad+step*i+step/2;
-    const yO=pad+(H-2*pad)*(1-c.o/100),yC=pad+(H-2*pad)*(1-c.c/100);
-    const up=c.c>=c.o;x.strokeStyle=x.fillStyle=up?'#3ddc84':'#ff5a6a';
-    x.beginPath();x.moveTo(cx,pad+(H-2*pad)*(1-c.h/100));x.lineTo(cx,pad+(H-2*pad)*(1-c.l/100));x.stroke();
-    const top=Math.min(yO,yC),hgt=Math.max(2,Math.abs(yC-yO));x.fillRect(cx-cw/2,top,cw,hgt);});
+  x.clearRect(0,0,W,H);const d=S.hpCandles.map(c=>c.c);
+  if(d.length<1){x.fillStyle='#566275';x.font='11px monospace';x.fillText('尚無交戰資料',10,H/2);return;}
+  const pad=10, x0=24, plotW=W-x0, plotH=H-2*pad;
+  // 格線 + 刻度
+  x.strokeStyle='#1c2533';x.fillStyle='#3a4658';x.font='9px monospace';
+  [0,25,50,75,100].forEach(p=>{const y=pad+plotH*(1-p/100);x.beginPath();x.moveTo(x0,y);x.lineTo(W,y);x.stroke();x.fillText(p,3,y+3);});
+  // 撤退線（紅色虛線）
+  const rt=retreatThreshold(), ry=pad+plotH*(1-rt/100);
+  x.setLineDash([4,3]);x.strokeStyle='#ff5a6a';x.beginPath();x.moveTo(x0,ry);x.lineTo(W,ry);x.stroke();x.setLineDash([]);
+  x.fillStyle='#ff5a6a';x.fillText('撤退線',W-42,ry-3);
+  // HP 折線
+  const n=d.length;
+  x.beginPath();x.lineWidth=2;x.strokeStyle='#3fe0d0';
+  d.forEach((v,i)=>{const px=x0+(n===1?plotW:plotW*i/(n-1));const py=pad+plotH*(1-clamp(v,0,100)/100);i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.stroke();
+  // 面積填充
+  x.lineTo(W,H-pad);x.lineTo(x0,H-pad);x.closePath();x.fillStyle='#3fe0d018';x.fill();
 }
 function updateCountdown(){
   const ms=S.bossDeadline-Date.now();
@@ -637,8 +664,8 @@ function advCard(a,inParty){
     </div>
   </div>`;
 }
-window.deployAdv=id=>{if(S.party.length>=4){toast('上陣已滿 4 人');return;}if(!S.party.includes(id))S.party.push(id);renderParty();renderTavern();refreshDash();save();};
-window.benchAdv=id=>{S.party=S.party.filter(x=>x!==id);renderParty();renderTavern();refreshDash();save();};
+window.deployAdv=id=>{if(S.party.length>=4){toast('上陣已滿 4 人');return;}if(!S.party.includes(id))S.party.push(id);if(AR&&AR.ctx)syncHeroes();renderParty();renderTavern();refreshDash();save();};
+window.benchAdv=id=>{S.party=S.party.filter(x=>x!==id);if(AR&&AR.ctx)syncHeroes();renderParty();renderTavern();refreshDash();save();};
 
 /* equip picker */
 let equipCtx=null;
@@ -662,7 +689,7 @@ window.doEquip=(advId,slot,itemId)=>{
   const old=a.equip[slot]; if(old)S.inv.push(old);
   if(itemId==null){a.equip[slot]=null;}
   else{const it=S.inv.find(x=>x.id===itemId);a.equip[slot]=it;S.inv=S.inv.filter(x=>x.id!==itemId);}
-  closeModal();renderParty();refreshDash();save();
+  closeModal();renderParty();if($('#v-gear').classList.contains('on'))renderGear();refreshDash();save();
 };
 
 /* job change */
@@ -696,7 +723,17 @@ function renderTactics(){
 
 /* gear */
 let forgeSel=null;
+function renderEquipPanel(){
+  const el=$('#equipPanel');if(!el)return;
+  if(S.party.length===0){el.innerHTML='<div class="muted">隊伍未上陣，先到「🍺 酒館」上陣冒險者。</div>';return;}
+  el.innerHTML='<div class="grid g2">'+S.party.map(id=>{const a=S.roster.find(x=>x.id===id);if(!a)return'';
+    const slots=Object.keys(SLOTS).map(sl=>{const it=a.equip[sl];
+      return `<div class="equipSlot"><span class="muted">${SLOTS[sl].ic} ${SLOTS[sl].n}</span>
+        <span style="cursor:pointer" onclick="openEquip(${a.id},'${sl}')">${it?`<span style="color:${TIERS[it.tier].c}">${itemName(it)}</span>`:'<span style="color:var(--cyan)">＋ 點此裝備</span>'}</span></div>`;}).join('');
+    return `<div class="card" style="background:var(--panel2)"><h4 style="font-size:12px">${a.name} <span class="jobTag">${JOBS[a.job].n} Lv.${a.lv}</span> <span class="c" style="margin-left:auto">⚔${fmt(Math.round(advStats(a).hp*0.2+advStats(a).atk*2+advStats(a).def*1.5))}</span></h4>${slots}</div>`;}).join('')+'</div>';
+}
 function renderGear(){
+  renderEquipPanel();
   $('#invCount').textContent=`(${S.inv.length} 件)`;
   const el=$('#invGrid');
   if(S.inv.length===0){el.innerHTML='<div class="muted">倉庫空空，去遠征打怪掉裝吧。</div>';}
@@ -903,6 +940,101 @@ $('#mClose').onclick=()=>$('#menuModal').classList.remove('on');
 $('#mSave').onclick=()=>{save();toast('已存檔');};
 $('#mReset').onclick=()=>{if(confirm('確定清除存檔重新開始？')){_noSave=true;localStorage.removeItem(KEY);location.reload();}};
 
+/* ===================================================================
+   像素戰鬥劇場（簡單 pixel art，Canvas 繪製）
+=================================================================== */
+const HERO_MAP=[
+"..oooo..",
+".ohhhho.",
+".oseeso.",
+".occcco.",
+"oocccdo.",
+".occcdo.",
+".occcdo.",
+".oc..co.",
+".ob..bo.",
+];
+const MON_MAP=[
+"..o..o..",
+".omoomo.",
+"oommmmoo",
+"ommmmmmo",
+"omemmemo",
+"ommmmmmo",
+".ommmmo.",
+".o.mm.o.",
+];
+const JOB_COL={warrior:'#ff8a5a',mage:'#b07bff',thief:'#3ddc84',priest:'#4aa8ff',novice:'#9aa6b8'};
+const MON_COLS=['#8a9a5a','#9a5a5a','#5a8a9a','#9a5a9a','#aa7a4a','#6a6aaa'];
+let AR={canvas:null,ctx:null,mon:null,fx:[],heroes:[],t:0};
+function arenaInit(){AR.canvas=$('#arena');if(!AR.canvas)return;AR.ctx=AR.canvas.getContext('2d');spawnMonster();syncHeroes();requestAnimationFrame(arenaLoop);}
+function spawnMonster(){AR.mon={shake:0,dying:0,color:MON_COLS[Math.floor(S.depth/4)%MON_COLS.length],size:1+Math.min(0.7,S.depth*0.02)};}
+function syncHeroes(){AR.heroes=S.party.slice(0,4).map(id=>{const a=S.roster.find(x=>x.id===id);const job=a?a.job:'novice';return {job,col:JOB_COL[job]||'#9aa6b8',atk:0,hurt:0};});}
+function darken(hex,f){if(typeof hex!=='string'||hex[0]!=='#')return hex;const n=parseInt(hex.slice(1),16);const r=(n>>16)&255,g=(n>>8)&255,b=n&255;return `rgb(${r*f|0},${g*f|0},${b*f|0})`;}
+function drawWeapon(ctx,job,ox,oy,sc,atk){const x=ox+6*sc, lift=atk*2;
+  if(job==='mage'){ctx.fillStyle='#7a5638';for(let i=0;i<5;i++)ctx.fillRect(x,oy+(2+i)*sc-lift,sc,sc);ctx.fillStyle='#c9a3ff';ctx.fillRect(x-sc,oy+sc-lift,sc*2,sc*2);}
+  else if(job==='priest'){ctx.fillStyle='#caa15a';for(let i=0;i<5;i++)ctx.fillRect(x,oy+(2+i)*sc-lift,sc,sc);ctx.fillStyle='#fff';ctx.fillRect(x,oy-lift,sc,sc);ctx.fillRect(x-sc,oy+sc-lift,sc*3,sc);}
+  else if(job==='thief'){ctx.fillStyle='#cfd6e0';for(let i=0;i<3;i++)ctx.fillRect(x,oy+(3+i)*sc-lift,sc,sc);}
+  else{ctx.fillStyle='#dfe5ee';for(let i=0;i<6;i++)ctx.fillRect(x,oy+(1+i)*sc-lift,sc,sc);ctx.fillStyle='#8a93a3';ctx.fillRect(x-sc,oy+5*sc-lift,sc*3,sc);}}
+function arenaWipe(){if(!AR.ctx)return;AR.heroes.forEach(h=>h.hurt=1.4);AR.fx.push({x:54,y:34,vy:-0.25,life:80,txt:'全滅!',color:'#ff5a6a'});}
+function arenaFight(ev){
+  if(!AR.ctx)return;
+  syncHeroes();
+  AR.heroes.forEach(h=>{h.atk=1;});
+  if(AR.mon)AR.mon.shake=1;
+  const W=AR.canvas.clientWidth||440;
+  AR.fx.push({x:W-58,y:34,vy:-0.6,life:46,txt:ev.win?'-'+fmt(Math.round(ev.ep)):'擋下',color:ev.win?'#ffffff':'#ff5a6a',slash:true});
+  if(ev.gold)AR.fx.push({x:W-72,y:54,vy:-0.5,life:60,txt:'+'+fmt(ev.gold)+'G',color:'#ffc64b'});
+  if(ev.drop)AR.fx.push({x:W-84,y:16,vy:-0.4,life:80,txt:'★稀有',color:'#ffc64b'});
+  if(ev.win){if(AR.mon)AR.mon.dying=0.01;} else AR.heroes.forEach(h=>h.hurt=1);
+}
+function drawSprite(ctx,map,pal,ox,oy,sc){
+  for(let r=0;r<map.length;r++)for(let c=0;c<map[r].length;c++){const ch=map[r][c];if(ch==='.')continue;
+    ctx.fillStyle=pal[ch]||'#fff';ctx.fillRect(Math.round(ox+c*sc),Math.round(oy+r*sc),Math.ceil(sc),Math.ceil(sc));}
+}
+function arenaLoop(){
+  const ctx=AR.ctx;if(!ctx){return;}
+  const W=AR.canvas.width=(AR.canvas.clientWidth||0), H=AR.canvas.height;
+  AR.t++;
+  if(W>0){
+    ctx.clearRect(0,0,W,H);
+    // 地板磚
+    ctx.fillStyle='#0a121c';ctx.fillRect(0,H-13,W,13);
+    ctx.fillStyle='#16263a';for(let x=(AR.t/2%12)-12;x<W;x+=12)ctx.fillRect(x,H-13,6,3);
+    if(AR.heroes.length===0&&S.party.length>0)syncHeroes();
+    const sc=4, baseY=H-13-HERO_MAP.length*sc;
+    AR.heroes.forEach((h,i)=>{
+      const bob=Math.sin(AR.t*0.08+i)*1.4;
+      const px=14+i*32+h.atk*12, py=baseY+bob;
+      h.atk=Math.max(0,h.atk-0.06); h.hurt=Math.max(0,h.hurt-0.05);
+      ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.ellipse(px+4*sc,H-11,3.2*sc,sc*0.9,0,0,7);ctx.fill();
+      const flash=(h.hurt>0&&Math.floor(AR.t/4)%2);
+      const col=flash?'#ff5a6a':h.col;
+      const pal={o:'#10161f',h:darken(h.col,0.55),s:'#f0c89a',e:'#16202e',c:col,d:darken(col,0.72),b:'#2a3242'};
+      drawSprite(ctx,HERO_MAP,pal,px,py,sc);
+      drawWeapon(ctx,h.job,px,py,sc,h.atk);
+    });
+    if(AR.heroes.length===0){ctx.fillStyle='#566275';ctx.font='11px monospace';ctx.fillText('（隊伍未上陣）',22,H/2);}
+    if(AR.mon){
+      const m=AR.mon, msc=4*m.size;
+      const shakeX=m.shake>0?(Math.random()-0.5)*6:0; m.shake=Math.max(0,m.shake-0.08);
+      let alpha=1, drop=0;
+      if(m.dying>0){m.dying+=0.045;alpha=Math.max(0,1-m.dying);drop=m.dying*12;if(m.dying>=1)spawnMonster();}
+      const mw=MON_MAP[0].length*msc, mx=W-30-mw+shakeX, my=H-13-MON_MAP.length*msc+drop;
+      ctx.globalAlpha=alpha*0.35;ctx.fillStyle='#000';ctx.beginPath();ctx.ellipse(mx+mw/2,H-11,mw*0.5,msc*0.9,0,0,7);ctx.fill();ctx.globalAlpha=1;
+      ctx.globalAlpha=alpha;
+      drawSprite(ctx,MON_MAP,{o:'#0a0e15',m:m.dying>0?'#ffb0b0':m.color,e:'#ffffff'},mx,my,msc);
+      ctx.globalAlpha=1;
+    }
+    AR.fx=AR.fx.filter(f=>{f.life--;f.y+=f.vy;
+      if(f.slash){ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.globalAlpha=Math.min(1,f.life/12);
+        ctx.beginPath();ctx.moveTo(f.x-11,f.y-11);ctx.lineTo(f.x+11,f.y+11);ctx.moveTo(f.x+11,f.y-11);ctx.lineTo(f.x-11,f.y+11);ctx.stroke();ctx.globalAlpha=1;}
+      ctx.fillStyle=f.color;ctx.font='bold 11px monospace';ctx.globalAlpha=Math.min(1,f.life/22);
+      ctx.fillText(f.txt,f.x,f.y);ctx.globalAlpha=1; return f.life>0;});
+  }
+  requestAnimationFrame(arenaLoop);
+}
+
 /* ---------- init ---------- */
 function init(){
   const had=load();
@@ -913,7 +1045,7 @@ function init(){
     genLeaderboard();
   }
   offline();
-  refreshDash();drawGold();drawHp();updateCountdown();
+  refreshDash();drawGold();drawHp();updateCountdown();arenaInit();
   setInterval(gameTick,200);
   setInterval(save,15000);
   window.addEventListener('beforeunload',save);

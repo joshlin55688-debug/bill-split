@@ -953,25 +953,30 @@ $('#mReset').onclick=()=>{if(confirm('確定清除存檔重新開始？')){_noSa
    像素戰鬥劇場（簡單 pixel art，Canvas 繪製）
 =================================================================== */
 const HERO_MAP=[
-"..oooo..",
-".ohhhho.",
-".oseeso.",
-".occcco.",
-"oocccdo.",
-".occcdo.",
-".occcdo.",
-".oc..co.",
-".ob..bo.",
+"...oooo...",
+"..okkkko..",
+".okkkkkko.",
+".osseesso.",
+".osseesso.",
+"..occcco..",
+".occcccco.",
+"oclcccdcmo",
+"oclcccdcmo",
+".occcccdo.",
+".ocbbbco..",
+".occ..cco.",
+".obb..bbo.",
 ];
 const MON_MAP=[
-"..o..o..",
-".omoomo.",
-"oommmmoo",
-"ommmmmmo",
-"omemmemo",
-"ommmmmmo",
-".ommmmo.",
-".o.mm.o.",
+"..o....o..",
+".oo....oo.",
+".oommmmoo.",
+"ommmmmmmmo",
+"omemmmmemo",
+"ommmmmmmmo",
+"ommmmmmmmo",
+".ommmmmmo.",
+".o.mmmm.o.",
 ];
 const JOB_COL={warrior:'#ff8a5a',mage:'#b07bff',thief:'#3ddc84',priest:'#4aa8ff',novice:'#9aa6b8'};
 const MON_COLS=['#8a9a5a','#9a5a5a','#5a8a9a','#9a5a9a','#aa7a4a','#6a6aaa'];
@@ -980,11 +985,12 @@ function arenaInit(){AR.canvas=$('#arena');if(!AR.canvas)return;AR.ctx=AR.canvas
 function spawnMonster(){AR.mon={shake:0,dying:0,color:MON_COLS[Math.floor(S.depth/4)%MON_COLS.length],size:1+Math.min(0.7,S.depth*0.02)};}
 function syncHeroes(){AR.heroes=S.party.slice(0,4).map(id=>{const a=S.roster.find(x=>x.id===id);const job=a?a.job:'novice';return {job,col:JOB_COL[job]||'#9aa6b8',atk:0,hurt:0};});}
 function darken(hex,f){if(typeof hex!=='string'||hex[0]!=='#')return hex;const n=parseInt(hex.slice(1),16);const r=(n>>16)&255,g=(n>>8)&255,b=n&255;return `rgb(${r*f|0},${g*f|0},${b*f|0})`;}
-function drawWeapon(ctx,job,ox,oy,sc,atk){const x=ox+6*sc, lift=atk*2;
-  if(job==='mage'){ctx.fillStyle='#7a5638';for(let i=0;i<5;i++)ctx.fillRect(x,oy+(2+i)*sc-lift,sc,sc);ctx.fillStyle='#c9a3ff';ctx.fillRect(x-sc,oy+sc-lift,sc*2,sc*2);}
-  else if(job==='priest'){ctx.fillStyle='#caa15a';for(let i=0;i<5;i++)ctx.fillRect(x,oy+(2+i)*sc-lift,sc,sc);ctx.fillStyle='#fff';ctx.fillRect(x,oy-lift,sc,sc);ctx.fillRect(x-sc,oy+sc-lift,sc*3,sc);}
-  else if(job==='thief'){ctx.fillStyle='#cfd6e0';for(let i=0;i<3;i++)ctx.fillRect(x,oy+(3+i)*sc-lift,sc,sc);}
-  else{ctx.fillStyle='#dfe5ee';for(let i=0;i<6;i++)ctx.fillRect(x,oy+(1+i)*sc-lift,sc,sc);ctx.fillStyle='#8a93a3';ctx.fillRect(x-sc,oy+5*sc-lift,sc*3,sc);}}
+function lighten(hex,f){if(typeof hex!=='string'||hex[0]!=='#')return hex;const n=parseInt(hex.slice(1),16);const r=Math.min(255,((n>>16)&255)*f),g=Math.min(255,((n>>8)&255)*f),b=Math.min(255,(n&255)*f);return `rgb(${r|0},${g|0},${b|0})`;}
+function drawWeapon(ctx,job,ox,oy,sc,atk){const x=ox+8*sc, lift=atk*3;
+  if(job==='mage'){ctx.fillStyle='#7a5638';for(let i=0;i<7;i++)ctx.fillRect(x,oy+(4+i)*sc-lift,sc,sc);ctx.fillStyle='#c9a3ff';ctx.fillRect(x-sc,oy+3*sc-lift,sc*2,sc*2);ctx.fillStyle='#efe0ff';ctx.fillRect(x,oy+3*sc-lift,sc,sc);}
+  else if(job==='priest'){ctx.fillStyle='#caa15a';for(let i=0;i<7;i++)ctx.fillRect(x,oy+(4+i)*sc-lift,sc,sc);ctx.fillStyle='#fff';ctx.fillRect(x,oy+2*sc-lift,sc,sc);ctx.fillRect(x-sc,oy+3*sc-lift,sc*3,sc);}
+  else if(job==='thief'){ctx.fillStyle='#cfd6e0';for(let i=0;i<4;i++)ctx.fillRect(x,oy+(6+i)*sc-lift,sc,sc);ctx.fillStyle='#8a93a3';ctx.fillRect(x-sc,oy+9*sc-lift,sc*2,sc);}
+  else{ctx.fillStyle='#dfe5ee';for(let i=0;i<8;i++)ctx.fillRect(x,oy+(3+i)*sc-lift,sc,sc);ctx.fillStyle='#8a93a3';ctx.fillRect(x-sc,oy+9*sc-lift,sc*3,sc);ctx.fillStyle='#a06a3a';ctx.fillRect(x,oy+11*sc-lift,sc,sc);}}
 function arenaWipe(){if(!AR.ctx)return;AR.heroes.forEach(h=>h.hurt=1.4);AR.fx.push({x:54,y:34,vy:-0.25,life:80,txt:'全滅!',color:'#ff5a6a'});}
 function arenaFight(ev){
   if(!AR.ctx)return;
@@ -992,9 +998,9 @@ function arenaFight(ev){
   AR.heroes.forEach(h=>{h.atk=1;});
   if(AR.mon)AR.mon.shake=1;
   const W=AR.canvas.clientWidth||440;
-  AR.fx.push({x:W-58,y:34,vy:-0.6,life:46,txt:ev.win?'-'+fmt(Math.round(ev.ep)):'擋下',color:ev.win?'#ffffff':'#ff5a6a',slash:true});
-  if(ev.gold)AR.fx.push({x:W-72,y:54,vy:-0.5,life:60,txt:'+'+fmt(ev.gold)+'G',color:'#ffc64b'});
-  if(ev.drop)AR.fx.push({x:W-84,y:16,vy:-0.4,life:80,txt:'★稀有',color:'#ffc64b'});
+  AR.fx.push({x:W-58,y:54,vy:-0.6,life:46,txt:ev.win?'-'+fmt(Math.round(ev.ep)):'擋下',color:ev.win?'#ffffff':'#ff5a6a',slash:true});
+  if(ev.gold)AR.fx.push({x:W-82,y:40,vy:-0.5,life:60,txt:'+'+fmt(ev.gold)+'G',color:'#ffc64b'});
+  if(ev.drop)AR.fx.push({x:W-98,y:20,vy:-0.4,life:80,txt:'★稀有',color:'#ffc64b'});
   if(ev.win){if(AR.mon)AR.mon.dying=0.01;} else AR.heroes.forEach(h=>h.hurt=1);
 }
 function drawSprite(ctx,map,pal,ox,oy,sc){
@@ -1011,21 +1017,21 @@ function arenaLoop(){
     ctx.fillStyle='#0a121c';ctx.fillRect(0,H-13,W,13);
     ctx.fillStyle='#16263a';for(let x=(AR.t/2%12)-12;x<W;x+=12)ctx.fillRect(x,H-13,6,3);
     if(AR.heroes.length===0&&S.party.length>0)syncHeroes();
-    const sc=6, baseY=H-13-HERO_MAP.length*sc;
+    const sc=7, baseY=H-13-HERO_MAP.length*sc;
     AR.heroes.forEach((h,i)=>{
-      const bob=Math.sin(AR.t*0.08+i)*1.8;
-      const px=12+i*52+h.atk*16, py=baseY+bob;
+      const bob=Math.sin(AR.t*0.08+i)*2;
+      const px=10+i*78+h.atk*18, py=baseY+bob;
       h.atk=Math.max(0,h.atk-0.06); h.hurt=Math.max(0,h.hurt-0.05);
-      ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.ellipse(px+4*sc,H-11,3.2*sc,sc*0.9,0,0,7);ctx.fill();
+      ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.ellipse(px+5*sc,H-11,4*sc,sc*0.9,0,0,7);ctx.fill();
       const flash=(h.hurt>0&&Math.floor(AR.t/4)%2);
       const col=flash?'#ff5a6a':h.col;
-      const pal={o:'#10161f',h:darken(h.col,0.55),s:'#f0c89a',e:'#16202e',c:col,d:darken(col,0.72),b:'#2a3242'};
+      const pal={o:'#0d1320',k:darken(h.col,0.5),s:'#f0c89a',e:'#10161e',c:col,l:lighten(col,1.35),d:darken(col,0.68),b:'#2a3242',m:'#c8cfda'};
       drawSprite(ctx,HERO_MAP,pal,px,py,sc);
       drawWeapon(ctx,h.job,px,py,sc,h.atk);
     });
     if(AR.heroes.length===0){ctx.fillStyle='#566275';ctx.font='11px monospace';ctx.fillText('（隊伍未上陣）',22,H/2);}
     if(AR.mon){
-      const m=AR.mon, msc=6*m.size;
+      const m=AR.mon, msc=7*m.size;
       const shakeX=m.shake>0?(Math.random()-0.5)*6:0; m.shake=Math.max(0,m.shake-0.08);
       let alpha=1, drop=0;
       if(m.dying>0){m.dying+=0.045;alpha=Math.max(0,1-m.dying);drop=m.dying*12;if(m.dying>=1)spawnMonster();}

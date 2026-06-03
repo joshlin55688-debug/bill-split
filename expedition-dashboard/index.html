@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>遠征儀表板 Expedition Dashboard</title>
+<style>
+  :root{
+    --bg:#0c0f16; --bg2:#11161f; --panel:#141b26; --panel2:#1a2230; --line:#222c3a;
+    --ink:#cdd6e4; --ink2:#7c8aa0; --ink3:#566275;
+    --green:#3ddc84; --red:#ff5a6a; --gold:#ffc64b; --blue:#4aa8ff; --purple:#b07bff; --cyan:#3fe0d0;
+    --t1:#9aa6b8; --t2:#5fd17a; --t3:#4aa8ff; --t4:#b07bff; --t5:#ffc64b; --t6:#ff7a4a;
+    --mono:"SF Mono","Consolas","Roboto Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh}
+  .app{max-width:1180px;margin:0 auto;padding:10px}
+  /* topbar */
+  .top{display:flex;align-items:center;gap:14px;padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;flex-wrap:wrap}
+  .brand{font-weight:800;letter-spacing:1px;color:#fff}
+  .brand b{color:var(--cyan)}
+  .brand small{display:block;font-size:9px;color:var(--ink3);letter-spacing:2px;font-weight:400}
+  .cur{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+  .cc{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-weight:700;display:flex;gap:6px;align-items:center}
+  .cc .lab{color:var(--ink3);font-size:10px;font-weight:500}
+  .cc .v{color:var(--gold)}
+  .cc.gem .v{color:var(--cyan)} .cc.stone .v{color:var(--purple)}
+  /* tabs */
+  .tabs{display:flex;gap:6px;margin:10px 0 0;flex-wrap:wrap}
+  .tab{padding:7px 14px;background:var(--panel);border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;cursor:pointer;color:var(--ink2);font-weight:700;font-size:12px}
+  .tab.on{background:var(--panel2);color:#fff;box-shadow:inset 0 2px 0 var(--cyan)}
+  .view{display:none;background:var(--panel2);border:1px solid var(--line);border-radius:0 10px 10px 10px;padding:12px;min-height:420px}
+  .view.on{display:block}
+  /* dashboard grid */
+  .dash{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:860px){.dash{grid-template-columns:1fr}}
+  .module{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .mh{display:flex;align-items:center;gap:8px;font-weight:800;color:#fff;font-size:12px;letter-spacing:1px;margin-bottom:8px}
+  .mh .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 1.4s infinite}
+  .mh .dot.off{background:var(--ink3);box-shadow:none;animation:none}
+  @keyframes pulse{50%{opacity:.4}}
+  .mh small{margin-left:auto;color:var(--ink3);font-weight:500;font-size:10px}
+  /* depth bar */
+  .depthRow{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ink2);margin-bottom:6px}
+  .depthRow b{color:var(--cyan);font-size:14px}
+  .pbar{height:14px;background:#0a0e15;border:1px solid var(--line);border-radius:7px;overflow:hidden;position:relative}
+  .pbar>i{display:block;height:100%;background:linear-gradient(90deg,#2a6f5a,var(--green));transition:width .4s;box-shadow:0 0 10px #3ddc8455}
+  .pbar .pct{position:absolute;inset:0;text-align:center;font-size:9px;line-height:14px;color:#fff;text-shadow:0 0 3px #000}
+  /* log */
+  .log{height:240px;overflow-y:auto;background:#070a10;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:11.5px;line-height:1.7}
+  .log .l{white-space:pre-wrap;word-break:break-all}
+  .log .t{color:var(--ink3)}
+  .g{color:var(--green)} .r{color:var(--red)} .y{color:var(--gold)} .b{color:var(--blue)} .p{color:var(--purple)} .c{color:var(--cyan)} .dim{color:var(--ink3)}
+  /* ticker */
+  .ticker{display:flex;gap:14px;flex-wrap:wrap;background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:11px;margin-top:8px}
+  .ticker .k{color:var(--ink3)} .ticker .v{font-weight:700}
+  canvas{width:100%;display:block;background:#070a10;border:1px solid var(--line);border-radius:8px}
+  .cdRow{display:flex;justify-content:space-between;align-items:center;background:#0a0e15;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:8px}
+  .cdRow .cd{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:1px}
+  /* controls */
+  .btn{border:1px solid var(--line);background:var(--panel2);color:var(--ink);border-radius:8px;padding:7px 13px;font-family:var(--mono);font-weight:700;font-size:12px;cursor:pointer;transition:.1s}
+  .btn:hover{border-color:var(--cyan);color:#fff}
+  .btn:active{transform:translateY(1px)}
+  .btn.go{background:linear-gradient(180deg,#1f5a44,#16493a);border-color:#2a6f5a;color:#aef5cf}
+  .btn.go:hover{box-shadow:0 0 12px #3ddc8444}
+  .btn.stop{background:linear-gradient(180deg,#5a1f28,#491620);border-color:#7a2a36;color:#ffc4cb}
+  .btn.sm{padding:4px 9px;font-size:11px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.gold{border-color:#7a5e1a;color:var(--gold)}
+  .ctrlRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  /* cards & lists */
+  .grid{display:grid;gap:10px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:760px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .card h4{margin:0 0 6px;font-size:13px;color:#fff;display:flex;align-items:center;gap:6px}
+  .stat{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px dashed #1c2533}
+  .stat .k{color:var(--ink2)} .stat .v{font-weight:700}
+  .pill{font-size:9px;font-weight:800;padding:1px 6px;border-radius:6px;border:1px solid;letter-spacing:.5px}
+  .jobTag{background:#1a2230;border:1px solid var(--line);color:var(--cyan);font-size:10px;padding:1px 6px;border-radius:6px}
+  .trait{display:inline-block;background:#221a30;border:1px solid #3a2a52;color:var(--purple);font-size:10px;padding:1px 6px;border-radius:6px;margin:1px 2px 0 0}
+  .hpbar{height:6px;background:#0a0e15;border-radius:4px;overflow:hidden;margin-top:4px}
+  .hpbar>i{display:block;height:100%;background:linear-gradient(90deg,#c33,#3ddc84)}
+  /* items */
+  .item{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--panel);cursor:pointer;font-size:11px;position:relative}
+  .item:hover{border-color:var(--ink2)}
+  .item.sel{border-color:var(--cyan);box-shadow:0 0 8px #3fe0d033}
+  .item .nm{font-weight:800}
+  .item .af{color:var(--ink2);font-size:10px}
+  .item .lock{position:absolute;top:6px;right:8px;font-size:11px}
+  .itemGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;max-height:340px;overflow-y:auto;padding-right:4px}
+  .hint{font-size:11px;color:var(--ink2);background:#0e1420;border:1px solid var(--line);border-left:3px solid var(--cyan);border-radius:6px;padding:7px 10px;margin-bottom:10px}
+  .sel-input{background:#0a0e15;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:12px}
+  input[type=range]{accent-color:var(--cyan)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:none;background:var(--panel);color:var(--ink2);padding:6px 12px;cursor:pointer;font-family:var(--mono);font-weight:700;font-size:11px}
+  .seg button.on{background:var(--panel2);color:#fff}
+  .seg button.con.on{color:var(--green)} .seg button.bal.on{color:var(--gold)} .seg button.agg.on{color:var(--red)}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th,td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--ink3);font-weight:600}
+  .rank1{color:var(--gold)} .rank2{color:#cdd6e4} .rank3{color:#cd9b6a}
+  .code{background:#0a0e15;border:1px solid var(--line);border-radius:6px;padding:6px;font-size:10px;word-break:break-all;color:var(--cyan);max-height:60px;overflow:auto}
+  .toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:6px;z-index:50}
+  .toast div{background:#0a0e15;border:1px solid var(--cyan);color:var(--ink);padding:8px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 20px #000a;animation:ti .3s, to .3s 2.7s forwards}
+  @keyframes ti{from{transform:translateX(40px);opacity:0}}@keyframes to{to{opacity:0}}
+  .modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
+  .modal.on{display:flex}
+  .modalBox{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:18px;max-width:440px;width:100%}
+  .modalBox h3{margin:0 0 10px;color:#fff}
+  .flex{display:flex;gap:8px;align-items:center}
+  .muted{color:var(--ink3)}
+  .scroll{max-height:360px;overflow-y:auto}
+  .equipSlot{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;padding:3px 0;border-bottom:1px dashed #1c2533}
+  ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#243042;border-radius:4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="brand">遠<b>征</b>儀表板 <small>EXPEDITION DASHBOARD</small></div>
+    <div class="cur">
+      <div class="cc"><span class="lab">GOLD</span><span class="v" id="cGold">0</span></div>
+      <div class="cc stone"><span class="lab">洗鍊石</span><span class="v" id="cStone">0</span></div>
+      <div class="cc gem"><span class="lab">重鑄方塊</span><span class="v" id="cBlock">0</span></div>
+      <div class="cc"><span class="lab">捲軸</span><span class="v" id="cScroll" style="color:var(--purple)">0</span></div>
+      <button class="btn sm" id="btnMenu">⚙</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-v="dash">📊 儀表板</div>
+    <div class="tab" data-v="party">🛡 隊伍</div>
+    <div class="tab" data-v="tactics">🤖 戰術</div>
+    <div class="tab" data-v="gear">💎 裝備</div>
+    <div class="tab" data-v="tavern">🍺 酒館</div>
+    <div class="tab" data-v="boss">🌍 世界首領</div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div class="view on" id="v-dash">
+    <div class="dash">
+      <div>
+        <div class="module">
+          <div class="mh"><span class="dot" id="liveDot"></span>即時戰情終端機 <small id="tacLabel">平衡型</small></div>
+          <div class="depthRow">深淵 <b id="depthNum">第 0 層</b><span style="margin-left:auto" id="depthRecord">最深 0 層</span></div>
+          <div class="pbar"><i id="depthBar" style="width:0%"></i><div class="pct" id="depthPct">待命</div></div>
+          <div class="log" id="log"></div>
+          <div class="ticker" id="ticker"></div>
+          <div class="ctrlRow">
+            <button class="btn go" id="btnStart">▶ 開始遠征</button>
+            <button class="btn stop" id="btnRetreat" disabled>■ 撤退結算</button>
+            <span class="muted" id="runState">狀態：待命</span>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="module">
+          <div class="mh"><span class="dot off"></span>收益折線圖 <small>金幣/分鐘</small></div>
+          <canvas id="goldChart" height="120"></canvas>
+        </div>
+        <div class="module" style="margin-top:12px">
+          <div class="mh"><span class="dot off"></span>戰力耗損 K 線 <small>每場 HP 開高低收</small></div>
+          <canvas id="hpChart" height="120"></canvas>
+        </div>
+        <div class="module" style="margin-top:12px">
+          <div class="mh"><span class="dot off"></span>重要事件倒數</div>
+          <div class="cdRow"><span>🌍 世界首領週結算</span><span class="cd" id="bossCd">--:--:--</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PARTY -->
+  <div class="view" id="v-party">
+    <div class="hint">隊伍綜合戰力 = HP×0.2 + ATK×2.0 + DEF×1.5。最多 4 名冒險者。點裝備欄可換裝。</div>
+    <div style="margin-bottom:8px" class="flex"><b style="color:#fff">總戰力 <span class="c" id="totalTP">0</span></b><span class="muted">｜上陣 <span id="partyCount">0</span>/4</span></div>
+    <div class="grid g2" id="partyGrid"></div>
+  </div>
+
+  <!-- TACTICS -->
+  <div class="view" id="v-tactics">
+    <div class="hint">戰術引擎把戰鬥變成條件式腳本。選模板或自訂撤退門檻。激進模式：法力全開 → ATK +25%，但放棄防禦 → DEF -60%。</div>
+    <div class="card">
+      <h4>📋 預設模板 (Presets)</h4>
+      <div class="seg" id="presetSeg">
+        <button class="con" data-p="conservative">保守型 (HP&lt;60%撤退)</button>
+        <button class="bal on" data-p="balanced">平衡型 (HP&lt;25%撤退)</button>
+        <button class="agg" data-p="aggressive">激進型 (HP&lt;5%·極限輸出)</button>
+      </div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <h4>🛠 自訂自動化邏輯 (Custom Workflow) <span class="pill" style="border-color:#7a5e1a;color:var(--gold)">LITE</span></h4>
+      <div class="muted" style="margin-bottom:8px">節點串接編輯器為未來版本；此處先提供精簡條件版。</div>
+      <div class="stat"><span class="k">IF HP &lt; <b id="customHpVal" class="c">25</b>%  →  THEN 撤退結算</span></div>
+      <input type="range" id="customHp" min="1" max="90" value="25" style="width:100%;margin-top:8px">
+      <label class="flex" style="margin-top:10px;cursor:pointer"><input type="checkbox" id="aggMode"> <span>啟用「極限輸出」陣型（ATK +25% / DEF -60%）</span></label>
+      <label class="flex" style="margin-top:6px;cursor:pointer"><input type="checkbox" id="farmMode"> <span>到達歷史最深層後 <b id="farmVal" class="y">原地刷怪</b>，不再下潛（穩定收益）</span></label>
+      <div class="ctrlRow"><button class="btn gold" id="applyCustom">套用自訂邏輯</button></div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <h4>📈 當前戰術試算</h4>
+      <div id="tacticPreview"></div>
+    </div>
+  </div>
+
+  <!-- GEAR -->
+  <div class="view" id="v-gear">
+    <div class="hint">字首=固定數值下限｜字尾=百分比/特殊邏輯（吸血、無視防禦…）。5 件同階 → 合成 1 件高階。自動洗鍊可鎖字尾只洗字首。</div>
+    <div class="grid g2">
+      <div class="card">
+        <h4>🎒 倉庫 <small class="muted" id="invCount"></small></h4>
+        <div class="ctrlRow" style="margin-bottom:8px">
+          <button class="btn sm" id="btnFuse">⚗ 一鍵合成 (5→1)</button>
+          <button class="btn sm" id="btnSellJunk">🗑 賣出普通裝</button>
+        </div>
+        <div class="itemGrid" id="invGrid"></div>
+      </div>
+      <div class="card">
+        <h4>🔧 詞綴工坊 <small class="muted">選一件裝備</small></h4>
+        <div id="forgePanel"><div class="muted">← 從倉庫點選一件裝備</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAVERN -->
+  <div class="view" id="v-tavern">
+    <div class="hint">無抽卡系統。酒館隨機刷新帶「先天性格」的初心者，付金幣面試雇用。Lv10 可一轉（戰士/法師/盜賊/服事）。</div>
+    <div class="ctrlRow" style="margin-bottom:10px">
+      <button class="btn" id="btnRefresh">🔄 刷新履歷 (<span id="refreshCost">50</span> G)</button>
+      <span class="muted">名額：上陣最多 4 人，倉儲不限</span>
+    </div>
+    <div class="grid g3" id="tavernGrid"></div>
+    <h4 style="color:#fff;margin:16px 0 6px">📚 冒險者名冊 <small class="muted" id="rosterCount"></small></h4>
+    <div class="grid g3" id="rosterGrid"></div>
+  </div>
+
+  <!-- BOSS -->
+  <div class="view" id="v-boss">
+    <div class="hint">每週輪替極端參數首領，進行 DPS 輸出檢定。排行榜公開頂尖陣容與「戰術代碼」，可一鍵匯入再微調。</div>
+    <div class="grid g2">
+      <div class="card">
+        <h4>👹 本週首領 <span class="jobTag" id="bossWeek"></span></h4>
+        <div id="bossInfo"></div>
+        <div class="ctrlRow"><button class="btn stop" id="btnChallenge">⚔ 發起 DPS 檢定 (30秒模擬)</button></div>
+        <div class="log" id="bossLog" style="height:120px;margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h4>🏆 本週排行榜</h4>
+        <table id="lbTable"><thead><tr><th>#</th><th>公會</th><th>DPS</th><th>代碼</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <h4>🧬 戰術代碼 (Build Code)</h4>
+      <div class="muted" style="margin-bottom:6px">匯出你目前的隊伍/裝備/戰術為代碼；或貼上頂尖玩家代碼參考（僅供查看設定）。</div>
+      <div class="ctrlRow"><button class="btn sm" id="btnExport">⬆ 匯出我的 Build</button><button class="btn sm" id="btnImport">⬇ 貼上 Build 查看</button></div>
+      <div class="code" id="buildCode" style="margin-top:8px">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- menu modal -->
+<div class="modal" id="menuModal"><div class="modalBox">
+  <h3>⚙ 設定</h3>
+  <p class="muted">進度自動存於此瀏覽器 localStorage。</p>
+  <div class="ctrlRow">
+    <button class="btn" id="mSave">💾 立即存檔</button>
+    <button class="btn stop" id="mReset">🗑 重置存檔</button>
+    <button class="btn" id="mClose">關閉</button>
+  </div>
+</div></div>
+
+<!-- import modal -->
+<div class="modal" id="importModal"><div class="modalBox">
+  <h3>⬇ 貼上 Build Code</h3>
+  <textarea id="importText" class="sel-input" style="width:100%;height:80px" placeholder="貼上 [EXD-...] 代碼"></textarea>
+  <div class="ctrlRow"><button class="btn" id="importGo">解析</button><button class="btn" id="importClose">取消</button></div>
+  <div id="importResult" style="margin-top:8px;font-size:11px"></div>
+</div></div>
+
+<script>
+/* ===================================================================
+   遠征儀表板 Expedition Dashboard — 單檔放置型數據遊戲
+=================================================================== */
+const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
+const ri=(a,b)=>Math.floor(Math.random()*(b-a+1))+a, rf=(a,b)=>Math.random()*(b-a)+a, pick=a=>a[Math.floor(Math.random()*a.length)];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const fmt=n=>{n=Math.floor(n);if(n>=1e9)return(n/1e9).toFixed(2)+'B';if(n>=1e6)return(n/1e6).toFixed(2)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'k';return''+n;};
+
+/* ---------- 資料定義 ---------- */
+const JOBS={
+  novice:{n:'初心者',g:{hp:6,atk:2,def:1.5,luk:0.4}},
+  warrior:{n:'戰士',g:{hp:14,atk:3,def:4,luk:0.3},col:'#ff8a5a'},
+  mage:{n:'法師',g:{hp:5,atk:7,def:1,luk:0.6},col:'#b07bff'},
+  thief:{n:'盜賊',g:{hp:8,atk:4.5,def:2,luk:1.4},col:'#3ddc84'},
+  priest:{n:'服事',g:{hp:9,atk:2.5,def:3,luk:0.8},col:'#4aa8ff'},
+};
+const FIRST_JOBS=['warrior','mage','thief','priest'];
+const TRAITS=[
+  {id:'zeal',n:'狂熱',d:'ATK +12%',mod:{atk:1.12}},
+  {id:'wall',n:'鐵壁',d:'DEF +18%',mod:{def:1.18}},
+  {id:'vital',n:'壯碩',d:'HP +15%',mod:{hp:1.15}},
+  {id:'lucky',n:'幸運兒',d:'LUK +25',mod:{lukFlat:25}},
+  {id:'genius',n:'天才',d:'經驗 +20%',mod:{exp:1.2}},
+  {id:'frail',n:'虛弱',d:'HP -12%',mod:{hp:0.88}},
+  {id:'reckless',n:'魯莽',d:'ATK +20% / DEF -15%',mod:{atk:1.20,def:0.85}},
+  {id:'steady',n:'沉穩',d:'全能 +5%',mod:{hp:1.05,atk:1.05,def:1.05}},
+];
+const NAMES=['Aldric','Bryn','Cael','Dahlia','Eira','Fenn','Gale','Hilda','Idris','Juno','Kael','Lira','Mira','Nox','Orin','Pae','Quill','Rune','Sable','Thorn','Ulla','Vesper','Wren','Yara','Zephyr','Brisa','Corvin','Dane'];
+const SLOTS={weapon:{n:'武器',ic:'⚔'},armor:{n:'護甲',ic:'🛡'},trinket:{n:'飾品',ic:'💍'}};
+const TIERS=[
+  {n:'普通',c:'var(--t1)',mult:1},{n:'精良',c:'var(--t2)',mult:1.6},{n:'稀有',c:'var(--t3)',mult:2.5},
+  {n:'史詩',c:'var(--t4)',mult:4},{n:'傳說',c:'var(--t5)',mult:6.5},{n:'神話',c:'var(--t6)',mult:10},
+];
+const PREFIX=[ // 固定數值（依 slot 偏向不同主屬）
+  {id:'atk',n:'鋒利的',stat:'atk',base:8},{id:'def',n:'堅固的',stat:'def',base:6},
+  {id:'hp',n:'結實的',stat:'hp',base:30},{id:'luk',n:'幸運的',stat:'luk',base:10},
+];
+const SUFFIX=[ // 百分比 / 特殊邏輯
+  {id:'patk',n:'之力量',type:'pct',stat:'atk',base:0.10},
+  {id:'pdef',n:'之守護',type:'pct',stat:'def',base:0.12},
+  {id:'lifesteal',n:'之吸血',type:'special',key:'lifesteal',base:0.10,d:'HP損耗 -X%'},
+  {id:'pierce',n:'之破甲',type:'special',key:'pierce',base:0.08,d:'勝率 +X%'},
+  {id:'greed',n:'之貪婪',type:'special',key:'greed',base:0.15,d:'金幣 +X%'},
+  {id:'fortune',n:'之機運',type:'special',key:'fortune',base:0.20,d:'掉落 +X%'},
+];
+const BASE_ITEM={weapon:'劍',armor:'鎧甲',trinket:'護符'};
+
+/* ---------- 存檔/狀態 ---------- */
+const KEY='expedition_dashboard_v1';
+let _noSave=false;
+function fresh(){
+  return {
+    gold:120, stone:5, block:0, scroll:0,
+    depth:0, maxDepth:0, hpPct:100, running:false,
+    tactic:'balanced', customHp:25, agg:false, farm:false,
+    roster:[], party:[], inv:[], nextId:1,
+    tavern:[], refreshCount:0,
+    log:[], bossLog:[],
+    goldHist:[], hpCandles:[], lastGoldTotal:0, goldRateAcc:0, goldRateTimer:Date.now(),
+    week:1, bossBest:0, lb:[], leaderboardSeed:1,
+    stats:{kills:0,goldTotal:0,drops:0,retreats:0},
+    bossDeadline:Date.now()+7*864e5, lastTs:Date.now(),
+  };
+}
+let S=null;
+function load(){try{const r=localStorage.getItem(KEY);if(r){S=JSON.parse(r);const f=fresh();for(const k in f)if(!(k in S))S[k]=f[k];return true;}}catch(e){console.warn(e);}S=fresh();return false;}
+function save(){if(_noSave)return;S.lastTs=Date.now();localStorage.setItem(KEY,JSON.stringify(S));}
+
+/* ---------- 冒險者 ---------- */
+function newAdv(job='novice',lvBias=0){
+  const tr=[]; const nT=ri(0,2);
+  const pool=[...TRAITS]; for(let i=0;i<nT;i++){tr.push(pool.splice(ri(0,pool.length-1),1)[0].id);}
+  return {id:S.nextId++, name:pick(NAMES), job, lv:1+lvBias, exp:0,
+    base:{hp:ri(80,120),atk:ri(10,16),def:ri(6,11),luk:ri(2,8)}, traits:tr,
+    equip:{weapon:null,armor:null,trinket:null}};
+}
+function advStats(a){
+  const g=JOBS[a.job].g; let s={hp:0,atk:0,def:0,luk:0};
+  for(const k in s) s[k]=a.base[k]+g[k]*(a.lv-1);
+  // equipment flat + collect specials
+  const sp={lifesteal:0,pierce:0,greed:0,fortune:0}; const pct={atk:0,def:0,hp:0};
+  for(const slot in a.equip){const it=a.equip[slot];if(!it)continue;
+    if(it.prefix)s[it.prefix.stat]+=it.prefix.val;
+    if(it.suffix){const sf=it.suffix; if(sf.type==='pct')pct[sf.stat]+=sf.val; else if(sf.type==='special')sp[sf.key]+=sf.val;}
+  }
+  // traits
+  let exp=1;
+  a.traits.forEach(id=>{const t=TRAITS.find(x=>x.id===id);if(!t)return;const m=t.mod;
+    if(m.hp)s.hp*=m.hp; if(m.atk)s.atk*=m.atk; if(m.def)s.def*=m.def; if(m.lukFlat)s.luk+=m.lukFlat; if(m.exp)exp*=m.exp;});
+  for(const k in pct) s[k]*=(1+pct[k]);
+  for(const k in s) s[k]=Math.round(s[k]);
+  return {...s, sp, expMul:exp};
+}
+function teamStats(){
+  let hp=0,atk=0,def=0,luk=0,sp={lifesteal:0,pierce:0,greed:0,fortune:0};
+  S.party.forEach(id=>{const a=S.roster.find(x=>x.id===id);if(!a)return;const st=advStats(a);
+    hp+=st.hp;atk+=st.atk;def+=st.def;luk+=st.luk;for(const k in sp)sp[k]+=st.sp[k];});
+  // 戰術修正
+  if(activeAgg()){atk*=1.25;def*=0.4;}
+  return {hp,atk:Math.round(atk),def:Math.round(def),luk,sp};
+}
+function teamPower(){const t=teamStats();return Math.round(t.hp*0.2 + t.atk*2.0 + t.def*1.5);}
+
+/* ---------- 戰術 ---------- */
+function activeAgg(){return S.tactic==='aggressive' || (S.tactic==='custom'&&S.agg);}
+function retreatThreshold(){
+  if(S.tactic==='conservative')return 60;
+  if(S.tactic==='balanced')return 25;
+  if(S.tactic==='aggressive')return 5;
+  return S.customHp;
+}
+function tacLabelText(){return {conservative:'保守型',balanced:'平衡型',aggressive:'激進型',custom:'自訂邏輯'}[S.tactic];}
+
+/* ---------- 敵人 / 戰鬥核心 ---------- */
+function enemyPower(depth){return Math.round(38*Math.pow(1.155,depth)+depth*9+30);}
+function envMult(depth){return 1+depth*0.01;} // 環境乘區
+
+// 一場戰鬥；silent=true 用於離線批次（不寫 log）。回傳事件物件。
+function combatStep(silent){
+  const tp=teamPower(); if(tp<=0) return {none:true};
+  const ts=teamStats();
+  const ep=enemyPower(S.depth);
+  const winRate=clamp(tp/(tp+ep)+ts.sp.pierce, 0.01, 0.995); // 破甲加勝率
+  const win=Math.random()<winRate;
+  let hpLoss=Math.min(100,(ep/tp)*15);
+  hpLoss*=(1-ts.sp.lifesteal); // 吸血降耗
+  const startHp=S.hpPct;
+  S.hpPct=clamp(S.hpPct-hpLoss,0,100);
+  const ev={win,ep,tp,winRate,hpLoss,startHp,gold:0,drop:null,depth:S.depth};
+  if(win){
+    let gold=ep*0.5*(1+ts.sp.greed);
+    gold=Math.round(gold);
+    S.gold+=gold; S.stats.goldTotal+=gold; S.goldRateAcc+=gold; ev.gold=gold;
+    S.stats.kills++;
+    // exp
+    S.party.forEach(id=>{const a=S.roster.find(x=>x.id===id);if(a){gainExp(a,Math.round(ep*0.25));}});
+    // drop
+    const baseDrop=0.06;
+    const dropRate=baseDrop*(1+ts.luk/100)*(1+ts.sp.fortune)*envMult(S.depth);
+    if(Math.random()<dropRate){const it=rollItem(S.depth);S.inv.push(it);S.stats.drops++;ev.drop=it;}
+    // 下潛 or farm
+    if(!(S.farm && S.depth>=S.maxDepth)){S.depth++; if(S.depth>S.maxDepth)S.maxDepth=S.depth;}
+  }
+  ev.endHp=S.hpPct;
+  // 撤退判定
+  if(S.hpPct<=retreatThreshold()){ev.retreat=true;}
+  return ev;
+}
+function gainExp(a,amt){
+  a.exp+=Math.round(amt*advStats(a).expMul);
+  const need=()=>Math.round(60*Math.pow(1.18,a.lv-1));
+  while(a.exp>=need()){a.exp-=need();a.lv++;
+    if(a.lv===10 && a.job==='novice'){/* 提示一轉 */}
+  }
+}
+
+/* ---------- 物品 ---------- */
+function rollItem(depth){
+  const slot=pick(Object.keys(SLOTS));
+  // tier 依深度與隨機
+  let tier=0; const r=Math.random()*100; const depthBonus=depth*0.6;
+  if(r<1+depthBonus*0.05)tier=5; else if(r<4+depthBonus*0.15)tier=4; else if(r<12+depthBonus*0.3)tier=3;
+  else if(r<30+depthBonus*0.4)tier=2; else if(r<60)tier=1; else tier=0;
+  tier=clamp(tier,0,5);
+  const it={id:S.nextId++,slot,tier,locked:false,prefix:null,suffix:null};
+  rerollPrefix(it); rerollSuffix(it);
+  return it;
+}
+function rerollPrefix(it){const p=pick(PREFIX);const m=TIERS[it.tier].mult;
+  it.prefix={id:p.id,n:p.n,stat:p.stat,val:Math.round(p.base*m*rf(0.8,1.3))};}
+function rerollSuffix(it){const s=pick(SUFFIX);const m=TIERS[it.tier].mult;
+  it.suffix={id:s.id,n:s.n,type:s.type,stat:s.stat,key:s.key,val:+(s.base*Math.sqrt(m)*rf(0.8,1.3)).toFixed(3)};}
+function itemName(it){return `${it.prefix?it.prefix.n:''}${BASE_ITEM[it.slot]}${it.suffix?it.suffix.n:''}`;}
+function itemPower(it){let p=0;if(it.prefix)p+={atk:2,def:1.5,hp:0.2,luk:0.5}[it.prefix.stat]*it.prefix.val;p+=it.tier*5;return Math.round(p);}
+function affixText(it){
+  let s='';
+  if(it.prefix)s+=`<span class="g">${it.prefix.stat.toUpperCase()} +${it.prefix.val}</span> `;
+  if(it.suffix){const sf=it.suffix;
+    if(sf.type==='pct')s+=`<span class="b">${sf.stat.toUpperCase()} +${Math.round(sf.val*100)}%</span>`;
+    else s+=`<span class="p">${SUFFIX.find(x=>x.id===sf.id).d.replace('X',Math.round(sf.val*100))}</span>`;}
+  return s;
+}
+
+/* ---------- 主迴圈 ---------- */
+let lastFight=0;
+function gameTick(){
+  const now=Date.now();
+  // 金幣速率取樣（每 5 秒一點）
+  if(now-S.goldRateTimer>=5000){
+    const perMin=S.goldRateAcc*(60000/(now-S.goldRateTimer));
+    S.goldHist.push(Math.round(perMin)); if(S.goldHist.length>60)S.goldHist.shift();
+    S.goldRateAcc=0; S.goldRateTimer=now;
+    if($('#v-dash').classList.contains('on'))drawGold();
+  }
+  // 戰鬥節奏 1.2s
+  if(S.running && now-lastFight>=1200){
+    lastFight=now; doLiveFight();
+  }
+  updateCountdown();
+}
+function doLiveFight(){
+  if(teamPower()<=0){pushLog('<span class="r">⚠ 隊伍戰力為 0，請先上陣冒險者</span>');stopRun();return;}
+  const startHp=S.hpPct;
+  const ev=combatStep(false);
+  // log
+  if(ev.win){
+    let line=`<span class="t">[D${ev.depth}]</span> 交戰 EP<span class="dim">${fmt(ev.ep)}</span> 勝率<span class="c">${Math.round(ev.winRate*100)}%</span> → <span class="g">勝 +${fmt(ev.gold)}G</span> <span class="r">-${ev.hpLoss.toFixed(1)}%HP</span>`;
+    if(ev.drop){const t=TIERS[ev.drop.tier];line+=` <span class="y">★掉落 [${t.n}] ${itemName(ev.drop)}</span>`;}
+    pushLog(line);
+  }else{
+    pushLog(`<span class="t">[D${ev.depth}]</span> 交戰 EP<span class="dim">${fmt(ev.ep)}</span> 勝率<span class="c">${Math.round(ev.winRate*100)}%</span> → <span class="r">敗退 -${ev.hpLoss.toFixed(1)}%HP</span>`);
+  }
+  // K線：每場一根（開=startHp 收=endHp）
+  S.hpCandles.push({o:startHp,c:S.hpPct,h:startHp,l:S.hpPct}); if(S.hpCandles.length>40)S.hpCandles.shift();
+  if($('#v-dash').classList.contains('on'))drawHp();
+  if(ev.retreat){pushLog(`<span class="y">▣ 觸發撤退條件 (HP≤${retreatThreshold()}%)，自動結算遠征。</span>`);retreatNow(true);}
+  refreshDash();
+  if($('#v-gear').classList.contains('on')&&ev.drop)renderGear();
+}
+function pushLog(html){S.log.push(html);if(S.log.length>120)S.log.shift();
+  if($('#v-dash').classList.contains('on'))renderLog();}
+function renderLog(){const el=$('#log');el.innerHTML=S.log.slice(-80).map(l=>`<div class="l">${l}</div>`).join('');el.scrollTop=el.scrollHeight;}
+
+function startRun(){
+  if(S.party.length===0){toast('請先到「隊伍/酒館」上陣冒險者');return;}
+  if(teamPower()<=0){toast('隊伍戰力為 0');return;}
+  S.running=true; if(S.hpPct<=retreatThreshold())S.hpPct=100;
+  pushLog(`<span class="g">▶ 遠征開始 — ${tacLabelText()}，撤退線 HP ${retreatThreshold()}%</span>`);
+  refreshDash();save();
+}
+function stopRun(){S.running=false;refreshDash();}
+function retreatNow(auto){
+  if(!S.running){toast('目前未在遠征');return;}
+  S.running=false; S.stats.retreats++;
+  const banked=Math.round(S.depth*5); // 撤退獎勵（深度紅利）
+  S.gold+=banked;
+  pushLog(`<span class="y">■ 撤退結算：抵達第 ${S.depth} 層，深度紅利 +${banked}G。隊伍休整回滿。</span>`);
+  S.hpPct=100;
+  refreshDash();save();
+}
+
+/* ---------- 離線回測 ---------- */
+function offline(){
+  const now=Date.now(); const dt=(now-(S.lastTs||now))/1000;
+  if(dt<60||!S.running||teamPower()<=0)return;
+  let ticks=Math.min(Math.floor(dt/1.2), 20000); // 上限
+  let g0=S.gold, k0=S.stats.kills, d0=S.stats.drops, retreats=0;
+  for(let i=0;i<ticks;i++){
+    const ev=combatStep(true);
+    if(ev.none)break;
+    if(ev.retreat){const banked=Math.round(S.depth*5);S.gold+=banked;S.stats.retreats++;S.hpPct=100;retreats++;
+      if(S.tactic==='conservative'||S.tactic==='balanced'){/* 自動再出發 */}else{/* 仍續行 */}}
+  }
+  const gain=S.gold-g0, kills=S.stats.kills-k0, drops=S.stats.drops-d0;
+  setTimeout(()=>{
+    pushLog(`<span class="c">⏱ 離線回測：模擬 ${ticks} 場戰鬥 / 約 ${(dt/60).toFixed(0)} 分鐘</span>`);
+    pushLog(`<span class="g">　└ 收益 +${fmt(gain)}G｜擊殺 ${kills}｜掉落 ${drops}｜撤退 ${retreats}　現處第 ${S.depth} 層</span>`);
+    toast(`離線收益 +${fmt(gain)}G（${kills} 擊殺）`);
+  },500);
+}
+
+/* ===================================================================
+   渲染
+=================================================================== */
+function refreshDash(){
+  $('#cGold').textContent=fmt(S.gold); $('#cStone').textContent=fmt(S.stone);
+  $('#cBlock').textContent=fmt(S.block); $('#cScroll').textContent=fmt(S.scroll);
+  $('#depthNum').textContent='第 '+S.depth+' 層';
+  $('#depthRecord').textContent='最深 '+S.maxDepth+' 層';
+  const tp=teamPower(), ep=enemyPower(S.depth);
+  const wr=tp>0?Math.round(tp/(tp+ep)*100):0;
+  $('#depthBar').style.width=Math.min(100,wr)+'%';
+  $('#depthPct').textContent=S.running?(wr+'% 勝率推進中'):'待命';
+  $('#liveDot').classList.toggle('off',!S.running);
+  $('#tacLabel').textContent=tacLabelText();
+  $('#runState').textContent='狀態：'+(S.running?'遠征中':'待命')+`　HP ${S.hpPct.toFixed(0)}%`;
+  $('#btnStart').disabled=S.running; $('#btnRetreat').disabled=!S.running;
+  // ticker
+  const ts=teamStats();
+  $('#ticker').innerHTML=
+    `<span><span class="k">HP </span><span class="v ${S.hpPct<retreatThreshold()*1.3?'r':'g'}">${S.hpPct.toFixed(0)}%</span></span>`+
+    `<span><span class="k">戰力 </span><span class="v c">${fmt(tp)}</span></span>`+
+    `<span><span class="k">敵方 </span><span class="v dim">${fmt(ep)}</span></span>`+
+    `<span><span class="k">勝率 </span><span class="v y">${wr}%</span></span>`+
+    `<span><span class="k">狀態 </span><span class="v ${activeAgg()?'r':'b'}">${activeAgg()?'激進型交戰':tacLabelText()}</span></span>`;
+  renderLog();
+}
+function updateTop(){$('#cGold').textContent=fmt(S.gold);$('#cStone').textContent=fmt(S.stone);$('#cBlock').textContent=fmt(S.block);$('#cScroll').textContent=fmt(S.scroll);}
+
+/* charts */
+function drawGold(){
+  const cv=$('#goldChart'),x=cv.getContext('2d');const W=cv.width=cv.clientWidth,H=cv.height;
+  x.clearRect(0,0,W,H);const d=S.goldHist;if(d.length<2){x.fillStyle='#566275';x.font='11px monospace';x.fillText('累積資料中…',10,H/2);return;}
+  const mx=Math.max(...d,1),pad=8;
+  x.strokeStyle='#1c2533';for(let i=0;i<=3;i++){const y=pad+(H-2*pad)*i/3;x.beginPath();x.moveTo(0,y);x.lineTo(W,y);x.stroke();}
+  x.beginPath();x.lineWidth=2;x.strokeStyle='#ffc64b';
+  d.forEach((v,i)=>{const px=i/(d.length-1)*W,py=H-pad-(H-2*pad)*(v/mx);i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.stroke();
+  x.lineTo(W,H);x.lineTo(0,H);x.closePath();x.fillStyle='#ffc64b18';x.fill();
+  x.fillStyle='#7c8aa0';x.font='10px monospace';x.fillText(fmt(mx)+'/min',4,12);
+}
+function drawHp(){
+  const cv=$('#hpChart'),x=cv.getContext('2d');const W=cv.width=cv.clientWidth,H=cv.height;
+  x.clearRect(0,0,W,H);const d=S.hpCandles;if(d.length<1){x.fillStyle='#566275';x.font='11px monospace';x.fillText('尚無交戰資料',10,H/2);return;}
+  const pad=10,n=d.length,cw=Math.max(2,(W-2*pad)/n*0.6),step=(W-2*pad)/n;
+  x.strokeStyle='#1c2533';[0,25,50,75,100].forEach(p=>{const y=pad+(H-2*pad)*(1-p/100);x.beginPath();x.moveTo(0,y);x.lineTo(W,y);x.stroke();});
+  d.forEach((c,i)=>{const cx=pad+step*i+step/2;
+    const yO=pad+(H-2*pad)*(1-c.o/100),yC=pad+(H-2*pad)*(1-c.c/100);
+    const up=c.c>=c.o;x.strokeStyle=x.fillStyle=up?'#3ddc84':'#ff5a6a';
+    x.beginPath();x.moveTo(cx,pad+(H-2*pad)*(1-c.h/100));x.lineTo(cx,pad+(H-2*pad)*(1-c.l/100));x.stroke();
+    const top=Math.min(yO,yC),hgt=Math.max(2,Math.abs(yC-yO));x.fillRect(cx-cw/2,top,cw,hgt);});
+}
+function updateCountdown(){
+  const ms=S.bossDeadline-Date.now();
+  if(ms<=0){rotateBoss();}
+  const s=Math.max(0,Math.floor(ms/1000));
+  const dd=Math.floor(s/86400),hh=Math.floor(s%86400/3600),mm=Math.floor(s%3600/60),ss=s%60;
+  $('#bossCd').textContent=`${dd}d ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+
+/* party */
+function renderParty(){
+  $('#totalTP').textContent=fmt(teamPower());
+  $('#partyCount').textContent=S.party.length;
+  const el=$('#partyGrid');
+  if(S.party.length===0){el.innerHTML='<div class="muted">尚未上陣任何冒險者，請至「🍺 酒館」雇用並上陣。</div>';return;}
+  el.innerHTML=S.party.map(id=>{const a=S.roster.find(x=>x.id===id);return advCard(a,true);}).join('');
+}
+function advCard(a,inParty){
+  const st=advStats(a); const job=JOBS[a.job];
+  const need=Math.round(60*Math.pow(1.18,a.lv-1));
+  const tp=Math.round(st.hp*0.2+st.atk*2+st.def*1.5);
+  const slots=Object.keys(SLOTS).map(sl=>{const it=a.equip[sl];
+    return `<div class="equipSlot"><span class="muted">${SLOTS[sl].ic}${SLOTS[sl].n}</span>
+      <span style="cursor:pointer" onclick="openEquip(${a.id},'${sl}')">${it?`<span style="color:${TIERS[it.tier].c}">${itemName(it)}</span>`:'<span class="muted">— 空 —</span>'}</span></div>`;}).join('');
+  const canJob=a.job==='novice'&&a.lv>=10;
+  return `<div class="card">
+    <h4>${a.name} <span class="jobTag" style="${job.col?`color:${job.col}`:''}">${job.n} Lv.${a.lv}</span>
+      <span class="c" style="margin-left:auto;font-size:11px">⚔${fmt(tp)}</span></h4>
+    <div>${a.traits.map(t=>{const tr=TRAITS.find(x=>x.id===t);return `<span class="trait" title="${tr.d}">${tr.n}</span>`;}).join('')||'<span class="muted" style="font-size:10px">無性格</span>'}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:6px">
+      <div class="stat"><span class="k">HP</span><span class="v g">${fmt(st.hp)}</span></div>
+      <div class="stat"><span class="k">ATK</span><span class="v r">${fmt(st.atk)}</span></div>
+      <div class="stat"><span class="k">DEF</span><span class="v b">${fmt(st.def)}</span></div>
+      <div class="stat"><span class="k">LUK</span><span class="v y">${fmt(st.luk)}</span></div>
+    </div>
+    <div class="hpbar"><i style="width:${a.exp/need*100}%"></i></div>
+    <div class="muted" style="font-size:10px;margin-top:2px">EXP ${a.exp}/${need}</div>
+    <div style="margin-top:6px">${slots}</div>
+    <div class="ctrlRow">
+      ${inParty?`<button class="btn sm" onclick="benchAdv(${a.id})">下陣</button>`:`<button class="btn sm" onclick="deployAdv(${a.id})" ${S.party.length>=4?'disabled':''}>上陣</button>`}
+      ${canJob?`<button class="btn sm gold" onclick="openJob(${a.id})">⬆ 一轉</button>`:''}
+    </div>
+  </div>`;
+}
+window.deployAdv=id=>{if(S.party.length>=4){toast('上陣已滿 4 人');return;}if(!S.party.includes(id))S.party.push(id);renderParty();renderTavern();refreshDash();save();};
+window.benchAdv=id=>{S.party=S.party.filter(x=>x!==id);renderParty();renderTavern();refreshDash();save();};
+
+/* equip picker */
+let equipCtx=null;
+window.openEquip=(advId,slot)=>{
+  const cands=S.inv.filter(it=>it.slot===slot);
+  const a=S.roster.find(x=>x.id===advId);
+  const cur=a.equip[slot];
+  let html=`<h3>${SLOTS[slot].ic} 為 ${a.name} 選擇${SLOTS[slot].n}</h3>`;
+  html+=`<div class="scroll">`;
+  if(cur)html+=`<div class="item" onclick="doEquip(${advId},'${slot}',null)"><div class="nm muted">▸ 卸下目前裝備</div></div>`;
+  if(cands.length===0)html+='<div class="muted">倉庫沒有此部位的裝備</div>';
+  cands.forEach(it=>{html+=`<div class="item" onclick="doEquip(${advId},'${slot}',${it.id})" style="margin-top:6px">
+    <div class="nm" style="color:${TIERS[it.tier].c}">[${TIERS[it.tier].n}] ${itemName(it)}</div>
+    <div class="af">${affixText(it)}</div></div>`;});
+  html+=`</div><div class="ctrlRow"><button class="btn" onclick="closeModal()">取消</button></div>`;
+  showModalHtml(html);
+};
+window.doEquip=(advId,slot,itemId)=>{
+  const a=S.roster.find(x=>x.id===advId);
+  // 卸下舊的 → 回倉庫
+  const old=a.equip[slot]; if(old)S.inv.push(old);
+  if(itemId==null){a.equip[slot]=null;}
+  else{const it=S.inv.find(x=>x.id===itemId);a.equip[slot]=it;S.inv=S.inv.filter(x=>x.id!==itemId);}
+  closeModal();renderParty();refreshDash();save();
+};
+
+/* job change */
+window.openJob=(id)=>{
+  const a=S.roster.find(x=>x.id===id);
+  let html=`<h3>⬆ ${a.name} 的一轉</h3><p class="muted">選擇職業（影響成長曲線）：</p><div class="grid g2">`;
+  FIRST_JOBS.forEach(j=>{const job=JOBS[j];
+    html+=`<div class="item" onclick="doJob(${id},'${j}')"><div class="nm" style="color:${job.col}">${job.n}</div>
+      <div class="af">HP+${job.g.hp}/Lv ATK+${job.g.atk} DEF+${job.g.def} LUK+${job.g.luk}</div></div>`;});
+  html+=`</div><div class="ctrlRow"><button class="btn" onclick="closeModal()">取消</button></div>`;
+  showModalHtml(html);
+};
+window.doJob=(id,j)=>{const a=S.roster.find(x=>x.id===id);a.job=j;closeModal();toast(`${a.name} 轉職為 ${JOBS[j].n}！`);renderParty();renderTavern();save();};
+
+/* tactics */
+function renderTactics(){
+  $$('#presetSeg button').forEach(b=>b.classList.toggle('on',b.dataset.p===S.tactic && S.tactic!=='custom'));
+  $('#customHp').value=S.customHp; $('#customHpVal').textContent=S.customHp;
+  $('#aggMode').checked=S.agg; $('#farmMode').checked=S.farm;
+  const tp=teamPower(),ep=enemyPower(S.depth);const ts=teamStats();
+  const wr=tp>0?clamp(tp/(tp+ep)+ts.sp.pierce,0,.995):0;
+  let hpLoss=tp>0?Math.min(100,(ep/tp)*15)*(1-ts.sp.lifesteal):0;
+  $('#tacticPreview').innerHTML=
+    `<div class="stat"><span class="k">當前戰術</span><span class="v c">${tacLabelText()}（撤退線 HP ${retreatThreshold()}%）</span></div>
+     <div class="stat"><span class="k">隊伍戰力 (HP×0.2+ATK×2+DEF×1.5)</span><span class="v">${fmt(tp)}</span></div>
+     <div class="stat"><span class="k">第 ${S.depth} 層敵方戰力</span><span class="v dim">${fmt(ep)}</span></div>
+     <div class="stat"><span class="k">預估勝率</span><span class="v y">${(wr*100).toFixed(1)}%</span></div>
+     <div class="stat"><span class="k">單場 HP 消耗</span><span class="v r">${hpLoss.toFixed(1)}%</span></div>
+     <div class="stat"><span class="k">特殊：吸血/破甲/貪婪/機運</span><span class="v p">${(ts.sp.lifesteal*100).toFixed(0)}% / ${(ts.sp.pierce*100).toFixed(0)}% / ${(ts.sp.greed*100).toFixed(0)}% / ${(ts.sp.fortune*100).toFixed(0)}%</span></div>`;
+}
+
+/* gear */
+let forgeSel=null;
+function renderGear(){
+  $('#invCount').textContent=`(${S.inv.length} 件)`;
+  const el=$('#invGrid');
+  if(S.inv.length===0){el.innerHTML='<div class="muted">倉庫空空，去遠征打怪掉裝吧。</div>';}
+  else{
+    const sorted=[...S.inv].sort((a,b)=>b.tier-a.tier);
+    el.innerHTML=sorted.map(it=>`<div class="item ${forgeSel===it.id?'sel':''}" onclick="selForge(${it.id})">
+      ${it.locked?'<span class="lock">🔒</span>':''}
+      <div class="nm" style="color:${TIERS[it.tier].c}">${SLOTS[it.slot].ic}[${TIERS[it.tier].n}]</div>
+      <div style="font-size:10.5px">${itemName(it)}</div>
+      <div class="af">${affixText(it)}</div></div>`).join('');
+  }
+  renderForge();
+}
+window.selForge=id=>{forgeSel=id;renderGear();};
+function renderForge(){
+  const el=$('#forgePanel');const it=S.inv.find(x=>x.id===forgeSel);
+  if(!it){el.innerHTML='<div class="muted">← 從倉庫點選一件裝備</div>';return;}
+  el.innerHTML=`
+    <div class="item sel"><div class="nm" style="color:${TIERS[it.tier].c}">[${TIERS[it.tier].n}] ${itemName(it)}</div>
+      <div class="af">${affixText(it)}</div></div>
+    <div class="ctrlRow" style="margin-top:8px">
+      <button class="btn sm" onclick="rerollOnce(${it.id})">🎲 洗鍊 1 次 (-1 石)</button>
+      <button class="btn sm" onclick="toggleLock(${it.id})">${it.locked?'🔓 解鎖字尾':'🔒 鎖定字尾'}</button>
+    </div>
+    <div class="card" style="margin-top:10px;background:var(--panel2)">
+      <h4>⚙ 自動洗鍊 (Auto-Reroll)</h4>
+      <div class="muted" style="font-size:10.5px;margin-bottom:6px">設定期望：字首數值 ≥ <span id="arVal" class="c">${Math.round(it.prefix.val*1.2)}</span></div>
+      <input type="range" id="arTarget" min="${it.prefix.val}" max="${Math.round(it.prefix.val*2)}" value="${Math.round(it.prefix.val*1.2)}" style="width:100%" oninput="$('#arVal').textContent=this.value">
+      <div class="muted" style="font-size:10px">${it.locked?'已鎖字尾：僅洗字首':'未鎖：字首字尾都會變動'}</div>
+      <div class="ctrlRow"><button class="btn gold sm" onclick="autoReroll(${it.id})">▶ 自動洗鍊 (上限 200 次)</button></div>
+      <div class="log" id="arLog" style="height:80px;margin-top:6px;display:none"></div>
+    </div>`;
+}
+window.toggleLock=id=>{const it=S.inv.find(x=>x.id===id);if(!it)return;
+  if(!it.locked && S.gold<200){toast('鎖定字尾需 200G');return;}
+  if(!it.locked)S.gold-=200;it.locked=!it.locked;updateTop();renderGear();save();};
+window.rerollOnce=id=>{const it=S.inv.find(x=>x.id===id);if(S.stone<1){toast('洗鍊石不足');return;}
+  S.stone--;rerollPrefix(it);if(!it.locked)rerollSuffix(it);updateTop();renderGear();save();};
+window.autoReroll=id=>{const it=S.inv.find(x=>x.id===id);const target=+$('#arTarget').value;
+  const lg=$('#arLog');lg.style.display='block';let n=0,lines=[];
+  while(n<200){if(S.stone<1){lines.push('<span class="r">洗鍊石耗盡，停止。</span>');break;}
+    S.stone--;n++;rerollPrefix(it);if(!it.locked)rerollSuffix(it);
+    if(it.prefix.val>=target){lines.push(`<span class="g">✔ 第 ${n} 次達標：${it.prefix.stat.toUpperCase()} +${it.prefix.val} ≥ ${target}</span>`);break;}
+  }
+  if(it.prefix.val<target && n>=200)lines.push(`<span class="y">已達 200 次上限，當前 +${it.prefix.val}（未達 ${target}）</span>`);
+  lg.innerHTML=`<div class="dim">消耗洗鍊石 ${n}…</div>`+lines.join('<br>');lg.scrollTop=lg.scrollHeight;
+  updateTop();renderGear();save();
+  // 重繪後 log 被清，所以 reattach
+  const lg2=$('#arLog');if(lg2){lg2.style.display='block';lg2.innerHTML=`<div class="dim">本次消耗 ${n} 石</div>`+lines.join('<br>');}
+};
+$('#btnFuse').onclick=()=>{
+  // 找出可合成的最低階：同 slot 同 tier 湊 5 件（不含鎖定）
+  for(let t=0;t<5;t++)for(const sl in SLOTS){
+    const grp=S.inv.filter(it=>it.tier===t&&it.slot===sl&&!it.locked);
+    if(grp.length>=5){const used=grp.slice(0,5).map(x=>x.id);S.inv=S.inv.filter(x=>!used.includes(x.id));
+      const ni=rollItem(0);ni.tier=t+1;ni.slot=sl;rerollPrefix(ni);rerollSuffix(ni);S.inv.push(ni);
+      toast(`合成成功：[${TIERS[t+1].n}] ${itemName(ni)}`);renderGear();save();return;}
+  }
+  toast('沒有足夠的「5 件同部位同階」可合成');
+};
+$('#btnSellJunk').onclick=()=>{const junk=S.inv.filter(it=>it.tier===0&&!it.locked);
+  if(junk.length===0){toast('沒有普通裝可賣');return;}
+  const ids=junk.map(x=>x.id);S.inv=S.inv.filter(x=>!ids.includes(x.id));
+  const g=junk.length*8;S.gold+=g;S.stone+=junk.length; // 賣垃圾換洗鍊石
+  toast(`賣出 ${junk.length} 件 → +${g}G +${junk.length} 洗鍊石`);updateTop();renderGear();save();};
+
+/* tavern */
+function ensureTavern(){if(S.tavern.length<3){while(S.tavern.length<3)S.tavern.push(newAdv('novice'));}}
+function renderTavern(){
+  ensureTavern();
+  $('#refreshCost').textContent=50+S.refreshCount*10;
+  $('#tavernGrid').innerHTML=S.tavern.map((a,i)=>{const st=advStats(a);
+    const cost=hireCost(a);
+    return `<div class="card"><h4>${a.name} <span class="jobTag">初心者</span></h4>
+      <div>${a.traits.map(t=>{const tr=TRAITS.find(x=>x.id===t);return `<span class="trait" title="${tr.d}">${tr.n}：${tr.d}</span>`;}).join('')||'<span class="muted" style="font-size:10px">無先天性格（白紙）</span>'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 12px;margin-top:6px">
+        <div class="stat"><span class="k">HP</span><span class="v g">${st.hp}</span></div>
+        <div class="stat"><span class="k">ATK</span><span class="v r">${st.atk}</span></div>
+        <div class="stat"><span class="k">DEF</span><span class="v b">${st.def}</span></div>
+        <div class="stat"><span class="k">LUK</span><span class="v y">${st.luk}</span></div>
+      </div>
+      <div class="ctrlRow"><button class="btn gold sm" onclick="hire(${i})">面試雇用 ${cost}G</button></div>
+    </div>`;}).join('');
+  $('#rosterCount').textContent=`(${S.roster.length} 人，上陣 ${S.party.length})`;
+  const bench=S.roster.filter(a=>!S.party.includes(a.id));
+  $('#rosterGrid').innerHTML=S.roster.length===0?'<div class="muted">尚無雇用任何冒險者</div>':
+    S.roster.map(a=>advCard(a,S.party.includes(a.id))).join('');
+}
+function hireCost(a){return 40+a.traits.length*30;}
+window.hire=i=>{const a=S.tavern[i];if(!a)return;const cost=hireCost(a);
+  if(S.gold<cost){toast('金幣不足');return;}
+  S.gold-=cost;S.roster.push(a);S.tavern.splice(i,1);ensureTavern();
+  toast(`雇用 ${a.name}！`);renderTavern();renderParty();updateTop();save();};
+$('#btnRefresh').onclick=()=>{const cost=50+S.refreshCount*10;if(S.gold<cost){toast('金幣不足');return;}
+  S.gold-=cost;S.refreshCount++;S.tavern=[];ensureTavern();renderTavern();updateTop();save();};
+
+/* boss */
+const BOSS_TEMPLATES=[
+  {n:'熔岩巨像',mod:'phys_immune',d:'物理免疫：ATK 低於 DEF×3 的部分無效，考驗爆發。',col:'#ff7a4a'},
+  {n:'劇毒妖蛇',mod:'poison',d:'極高持續毒傷：每秒固定流失，比拼續航與 HP。',col:'#3ddc84'},
+  {n:'虛空守衛',mod:'high_def',d:'極高防禦：需要破甲(pierce)字尾才有效率。',col:'#b07bff'},
+  {n:'時之裁決者',mod:'enrage',d:'狂暴計時：30 秒後傷害暴增，純 DPS 檢定。',col:'#ffc64b'},
+];
+function curBoss(){return BOSS_TEMPLATES[(S.week-1)%BOSS_TEMPLATES.length];}
+function rotateBoss(){S.week++;S.bossBest=0;S.bossDeadline=Date.now()+7*864e5;genLeaderboard();
+  pushLog(`<span class="p">🌍 新一週首領登場：${curBoss().n}</span>`);save();}
+function renderBoss(){
+  const b=curBoss();$('#bossWeek').textContent='第 '+S.week+' 週';
+  const ts=teamStats(),tp=teamPower();
+  $('#bossInfo').innerHTML=`<div class="stat"><span class="k">首領</span><span class="v" style="color:${b.col}">${b.n}</span></div>
+    <div class="stat"><span class="k">機制</span><span class="v">${b.d}</span></div>
+    <div class="stat"><span class="k">我方戰力</span><span class="v c">${fmt(tp)}</span></div>
+    <div class="stat"><span class="k">本週最佳 DPS</span><span class="v y">${fmt(S.bossBest)}</span></div>`;
+  if(S.lb.length===0)genLeaderboard();
+  // 插入玩家
+  const rows=[...S.lb];
+  if(S.bossBest>0)rows.push({name:'★ 你的公會',dps:S.bossBest,code:'(自己)',me:true});
+  rows.sort((a,b)=>b.dps-a.dps);
+  $('#lbTable tbody').innerHTML=rows.slice(0,10).map((r,i)=>`<tr class="${i<3?'rank'+(i+1):''}" ${r.me?'style="background:#0e1a14"':''}>
+    <td>${i+1}</td><td>${r.name}</td><td class="y">${fmt(r.dps)}</td><td class="muted" style="font-size:9px">${r.code}</td></tr>`).join('');
+  $('#bossLog').innerHTML=S.bossLog.map(l=>`<div class="l">${l}</div>`).join('');
+}
+function genLeaderboard(){
+  const seed=S.week*1000;const guilds=['NightOwls','數據狂人','深淵商會','零撤退','ROI最大化','穩健流','梭哈軍團'];
+  const base=teamPower()||500;
+  S.lb=guilds.map((g,i)=>({name:g,dps:Math.round(base*rf(1.2,3.5)*(1+(7-i)*0.15)),code:`[EXD-WB${S.week}-${ri(1000,9999)}]`}));
+  S.lb.sort((a,b)=>b.dps-a.dps);
+}
+$('#btnChallenge').onclick=()=>{
+  if(teamPower()<=0){toast('隊伍戰力為 0');return;}
+  const b=curBoss();const ts=teamStats();let atk=ts.atk;
+  // 套用首領機制
+  let eff=atk,note='';
+  if(b.mod==='phys_immune'){eff=Math.max(0,atk-ts.def*0.5);note='物理免疫扣減';}
+  if(b.mod==='high_def'){eff=atk*(0.4+ts.sp.pierce*3);note='高防需破甲';}
+  if(b.mod==='poison'){eff=atk*(1 - clamp(0.4 - ts.sp.lifesteal,0,0.4));note='毒傷續航';}
+  if(b.mod==='enrage'){eff=atk*1.3;note='狂暴純輸出';}
+  // 30 秒模擬：DPS = 有效ATK × (1+暴擊由LUK) ，加點隨機
+  const critMul=1+ts.luk/300;
+  const dps=Math.round(eff*critMul*rf(0.9,1.1));
+  S.bossLog=[`<span class="t">[模擬30s]</span> ${b.n}（${note}）`,
+    `有效ATK <span class="r">${fmt(eff)}</span> × 暴擊 <span class="y">${critMul.toFixed(2)}</span> = DPS <span class="c">${fmt(dps)}</span>`];
+  if(dps>S.bossBest){S.bossBest=dps;S.bossLog.push(`<span class="g">★ 刷新本週最佳！</span>`);
+    // 排行獎勵：捲軸
+    const rank=[...S.lb,{dps:S.bossBest}].sort((a,b)=>b.dps-a.dps).findIndex(r=>r.dps===S.bossBest)+1;
+    if(rank<=3){S.scroll+=3;S.bossLog.push(`<span class="p">前三名獎勵：傳說賦予捲軸 ×3</span>`);}
+    else if(rank<=10){S.scroll+=1;S.bossLog.push(`<span class="p">前十名獎勵：捲軸 ×1</span>`);}
+  }
+  // 深淵也給洗鍊石/方塊（這裡 boss 給方塊）
+  S.block+=2;
+  renderBoss();updateTop();save();
+};
+function buildCode(){
+  const obj={w:S.week,tac:S.tactic,hp:S.customHp,agg:S.agg,
+    party:S.party.map(id=>{const a=S.roster.find(x=>x.id===id);return {j:a.job,lv:a.lv,tr:a.traits};})};
+  return '[EXD-'+btoa(unescape(encodeURIComponent(JSON.stringify(obj)))).replace(/=/g,'')+']';
+}
+$('#btnExport').onclick=()=>{const code=buildCode();$('#buildCode').textContent=code;
+  if(navigator.clipboard)navigator.clipboard.writeText(code).then(()=>toast('已複製到剪貼簿')).catch(()=>{});};
+$('#btnImport').onclick=()=>{$('#importModal').classList.add('on');};
+$('#importGo').onclick=()=>{
+  let t=$('#importText').value.trim();const m=t.match(/\[EXD-(.+)\]/);
+  if(!m){$('#importResult').innerHTML='<span class="r">代碼格式錯誤</span>';return;}
+  try{let b=m[1];while(b.length%4)b+='=';const obj=JSON.parse(decodeURIComponent(escape(atob(b))));
+    $('#importResult').innerHTML=`<span class="g">解析成功（第 ${obj.w} 週 Build）</span><br>
+      戰術：${obj.tac}（撤退 HP ${obj.hp}%，激進 ${obj.agg?'開':'關'}）<br>
+      隊伍：${obj.party.map(p=>`${JOBS[p.j]?JOBS[p.j].n:p.j} Lv${p.lv}`).join('、')}<br>
+      <span class="muted">（僅供查看頂尖配置；裝備需自行重現）</span>`;
+  }catch(e){$('#importResult').innerHTML='<span class="r">解析失敗：'+e.message+'</span>';}
+};
+$('#importClose').onclick=()=>$('#importModal').classList.remove('on');
+
+/* ---------- modal/toast ---------- */
+function showModalHtml(html){let m=$('#dynModal');if(!m){m=document.createElement('div');m.className='modal';m.id='dynModal';m.innerHTML='<div class="modalBox" id="dynBox"></div>';document.body.appendChild(m);}
+  $('#dynBox').innerHTML=html;m.classList.add('on');}
+window.closeModal=()=>{const m=$('#dynModal');if(m)m.classList.remove('on');};
+function toast(msg){const t=$('#toast');const d=document.createElement('div');d.textContent=msg;t.appendChild(d);setTimeout(()=>d.remove(),3000);while(t.children.length>4)t.firstChild.remove();}
+
+/* ---------- tabs ---------- */
+$$('.tab').forEach(t=>t.onclick=()=>{
+  $$('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+  $$('.view').forEach(v=>v.classList.remove('on'));$('#v-'+t.dataset.v).classList.add('on');
+  const v=t.dataset.v;
+  if(v==='dash'){refreshDash();drawGold();drawHp();}
+  if(v==='party')renderParty();
+  if(v==='tactics')renderTactics();
+  if(v==='gear')renderGear();
+  if(v==='tavern')renderTavern();
+  if(v==='boss')renderBoss();
+});
+
+/* ---------- controls ---------- */
+$('#btnStart').onclick=startRun;
+$('#btnRetreat').onclick=()=>retreatNow(false);
+$$('#presetSeg button').forEach(b=>b.onclick=()=>{S.tactic=b.dataset.p;renderTactics();refreshDash();save();});
+$('#customHp').oninput=function(){$('#customHpVal').textContent=this.value;};
+$('#applyCustom').onclick=()=>{S.tactic='custom';S.customHp=+$('#customHp').value;S.agg=$('#aggMode').checked;S.farm=$('#farmMode').checked;
+  toast('已套用自訂自動化邏輯');renderTactics();refreshDash();save();};
+$('#aggMode').onchange=function(){S.agg=this.checked;};
+$('#farmMode').onchange=function(){S.farm=this.checked;};
+
+$('#btnMenu').onclick=()=>$('#menuModal').classList.add('on');
+$('#mClose').onclick=()=>$('#menuModal').classList.remove('on');
+$('#mSave').onclick=()=>{save();toast('已存檔');};
+$('#mReset').onclick=()=>{if(confirm('確定清除存檔重新開始？')){_noSave=true;localStorage.removeItem(KEY);location.reload();}};
+
+/* ---------- init ---------- */
+function init(){
+  const had=load();
+  if(!had){ // 新玩家：送一名戰士
+    const starter=newAdv('warrior');starter.name='隊長 '+starter.name;S.roster.push(starter);S.party.push(starter.id);
+    S.tavern=[];ensureTavern();
+    S.log.push('<span class="c">歡迎來到遠征儀表板。已配發 1 名戰士，點「▶ 開始遠征」開始自動化挖礦。</span>');
+    genLeaderboard();
+  }
+  offline();
+  refreshDash();drawGold();drawHp();updateCountdown();
+  setInterval(gameTick,200);
+  setInterval(save,15000);
+  window.addEventListener('beforeunload',save);
+}
+init();
+</script>
+</body>
+</html>

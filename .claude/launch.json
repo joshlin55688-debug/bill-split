@@ -36,6 +36,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-p", "4321", "Web-game-dev"],
       "port": 4321
+    },
+    {
+      "name": "expedition-dashboard",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "4322", "expedition-dashboard"],
+      "port": 4322
     }
   ]
 }

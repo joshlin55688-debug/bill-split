@@ -953,19 +953,23 @@ $('#mReset').onclick=()=>{if(confirm('確定清除存檔重新開始？')){_noSa
    像素戰鬥劇場（簡單 pixel art，Canvas 繪製）
 =================================================================== */
 const HERO_MAP=[
-"...oooo...",
-"..okkkko..",
-".okkkkkko.",
-".osseesso.",
-".osseesso.",
-"..occcco..",
-".occcccco.",
-"oclcccdcmo",
-"oclcccdcmo",
-".occcccdo.",
-".ocbbbco..",
-".occ..cco.",
-".obb..bbo.",
+"...oHHHo....",
+"..oHHHHHo...",
+".oHHHHHHHo..",
+".oHhSSSShHo.",
+".oHSSSSSSHo.",
+".oSWJSSJWSo.",
+".oSSKSSKSSo.",
+"..oSKKKKSo..",
+"...oAAAAo...",
+".oLAAAAAALo.",
+"oLAAAAAAAALo",
+".oAAAAAAAAo.",
+".oABBBBBBAo.",
+".oAaAAAAaAo.",
+".oaA..AAao..",
+"..oBB..BBo..",
+"..obb..bbo..",
 ];
 const MON_MAP=[
 "..o....o..",
@@ -986,11 +990,41 @@ function spawnMonster(){AR.mon={shake:0,dying:0,color:MON_COLS[Math.floor(S.dept
 function syncHeroes(){AR.heroes=S.party.slice(0,4).map(id=>{const a=S.roster.find(x=>x.id===id);const job=a?a.job:'novice';return {job,col:JOB_COL[job]||'#9aa6b8',atk:0,hurt:0};});}
 function darken(hex,f){if(typeof hex!=='string'||hex[0]!=='#')return hex;const n=parseInt(hex.slice(1),16);const r=(n>>16)&255,g=(n>>8)&255,b=n&255;return `rgb(${r*f|0},${g*f|0},${b*f|0})`;}
 function lighten(hex,f){if(typeof hex!=='string'||hex[0]!=='#')return hex;const n=parseInt(hex.slice(1),16);const r=Math.min(255,((n>>16)&255)*f),g=Math.min(255,((n>>8)&255)*f),b=Math.min(255,(n&255)*f);return `rgb(${r|0},${g|0},${b|0})`;}
-function drawWeapon(ctx,job,ox,oy,sc,atk){const x=ox+8*sc, lift=atk*3;
-  if(job==='mage'){ctx.fillStyle='#7a5638';for(let i=0;i<7;i++)ctx.fillRect(x,oy+(4+i)*sc-lift,sc,sc);ctx.fillStyle='#c9a3ff';ctx.fillRect(x-sc,oy+3*sc-lift,sc*2,sc*2);ctx.fillStyle='#efe0ff';ctx.fillRect(x,oy+3*sc-lift,sc,sc);}
-  else if(job==='priest'){ctx.fillStyle='#caa15a';for(let i=0;i<7;i++)ctx.fillRect(x,oy+(4+i)*sc-lift,sc,sc);ctx.fillStyle='#fff';ctx.fillRect(x,oy+2*sc-lift,sc,sc);ctx.fillRect(x-sc,oy+3*sc-lift,sc*3,sc);}
-  else if(job==='thief'){ctx.fillStyle='#cfd6e0';for(let i=0;i<4;i++)ctx.fillRect(x,oy+(6+i)*sc-lift,sc,sc);ctx.fillStyle='#8a93a3';ctx.fillRect(x-sc,oy+9*sc-lift,sc*2,sc);}
-  else{ctx.fillStyle='#dfe5ee';for(let i=0;i<8;i++)ctx.fillRect(x,oy+(3+i)*sc-lift,sc,sc);ctx.fillStyle='#8a93a3';ctx.fillRect(x-sc,oy+9*sc-lift,sc*3,sc);ctx.fillStyle='#a06a3a';ctx.fillRect(x,oy+11*sc-lift,sc,sc);}}
+function drawWeapon(ctx,job,ox,oy,sc,atk){const x=ox+9*sc, lift=atk*4;
+  if(job==='mage'){ // 法杖 + 水晶球
+    ctx.fillStyle='#6b4a2a';for(let i=0;i<9;i++)ctx.fillRect(x,oy+(3+i)*sc-lift,sc,sc);
+    ctx.fillStyle='#7ce0ff';ctx.fillRect(x-sc,oy+1*sc-lift,sc*3,sc*3);
+    ctx.fillStyle='#d8f6ff';ctx.fillRect(x,oy+2*sc-lift,sc,sc);
+  } else if(job==='priest'){ // 權杖 + 十字
+    ctx.fillStyle='#caa15a';for(let i=0;i<9;i++)ctx.fillRect(x,oy+(3+i)*sc-lift,sc,sc);
+    ctx.fillStyle='#fff4cf';ctx.fillRect(x,oy-1*sc-lift,sc,sc*3);ctx.fillRect(x-sc,oy+0*sc-lift,sc*3,sc);
+  } else if(job==='thief'){ // 匕首
+    ctx.fillStyle='#dde3ec';for(let i=0;i<5;i++)ctx.fillRect(x,oy+(7+i)*sc-lift,sc,sc);
+    ctx.fillStyle='#8b94a4';ctx.fillRect(x-sc,oy+11*sc-lift,sc*3,sc);
+  } else { // 戰士大劍
+    ctx.fillStyle='#eef2f8';for(let i=0;i<10;i++)ctx.fillRect(x,oy+(i)*sc-lift,sc,sc);
+    ctx.fillStyle='#aeb6c4';for(let i=0;i<10;i++)ctx.fillRect(x+sc,oy+(i)*sc-lift,Math.ceil(sc*0.5),sc);
+    ctx.fillStyle='#8b94a4';ctx.fillRect(x-sc,oy+9*sc-lift,sc*3,sc);
+    ctx.fillStyle='#a06a3a';ctx.fillRect(x,oy+10*sc-lift,sc,sc*2);
+    ctx.fillStyle='#ffcf5a';ctx.fillRect(x,oy+12*sc-lift,sc,sc);
+  }
+}
+function drawHeadgear(ctx,job,col,ox,oy,sc){
+  if(job==='mage'){ // 尖頂法師帽
+    ctx.fillStyle=darken(col,0.7);ctx.fillRect(ox+1*sc,oy+2*sc,sc*9,sc);
+    ctx.fillStyle=col;
+    ctx.fillRect(ox+3*sc,oy+0*sc,sc*5,sc*2);ctx.fillRect(ox+4*sc,oy-2*sc,sc*3,sc*2);ctx.fillRect(ox+5*sc,oy-4*sc,sc,sc*2);
+    ctx.fillStyle='#ffcf5a';ctx.fillRect(ox+5*sc,oy-5*sc,sc,sc);
+  } else if(job==='thief'){ // 兜帽
+    ctx.fillStyle=darken(col,0.78);ctx.fillRect(ox+1*sc,oy-1*sc,sc*9,sc*4);
+    ctx.fillStyle=col;ctx.fillRect(ox+2*sc,oy+0*sc,sc*7,sc*2);
+  } else if(job==='warrior'){ // 金冠帶
+    ctx.fillStyle='#ffcf5a';ctx.fillRect(ox+2*sc,oy+2*sc,sc*7,sc);
+    ctx.fillStyle='#d8a93a';ctx.fillRect(ox+5*sc,oy+1*sc,sc,sc);
+  } else if(job==='priest'){ // 光環
+    ctx.strokeStyle='#ffe9a0';ctx.lineWidth=Math.max(2,sc*0.4);ctx.beginPath();ctx.arc(ox+6*sc,oy+0*sc,sc*2.4,0,Math.PI*2);ctx.stroke();
+  }
+}
 function arenaWipe(){if(!AR.ctx)return;AR.heroes.forEach(h=>h.hurt=1.4);AR.fx.push({x:54,y:34,vy:-0.25,life:80,txt:'全滅!',color:'#ff5a6a'});}
 function arenaFight(ev){
   if(!AR.ctx)return;
@@ -1017,21 +1051,23 @@ function arenaLoop(){
     ctx.fillStyle='#0a121c';ctx.fillRect(0,H-13,W,13);
     ctx.fillStyle='#16263a';for(let x=(AR.t/2%12)-12;x<W;x+=12)ctx.fillRect(x,H-13,6,3);
     if(AR.heroes.length===0&&S.party.length>0)syncHeroes();
-    const sc=7, baseY=H-13-HERO_MAP.length*sc;
+    const sc=6, baseY=H-13-HERO_MAP.length*sc;
+    const HAIR={warrior:'#7a5230',mage:'#2e2348',thief:'#4a3326',priest:'#caa15a',novice:'#5a4a3a'};
     AR.heroes.forEach((h,i)=>{
-      const bob=Math.sin(AR.t*0.08+i)*2;
-      const px=10+i*78+h.atk*18, py=baseY+bob;
+      const bob=Math.sin(AR.t*0.09+i)*2;
+      const px=6+i*80+h.atk*18, py=baseY+bob;
       h.atk=Math.max(0,h.atk-0.06); h.hurt=Math.max(0,h.hurt-0.05);
-      ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.ellipse(px+5*sc,H-11,4*sc,sc*0.9,0,0,7);ctx.fill();
+      ctx.fillStyle='rgba(0,0,0,0.35)';ctx.beginPath();ctx.ellipse(px+6*sc,H-11,4*sc,sc*0.9,0,0,7);ctx.fill();
       const flash=(h.hurt>0&&Math.floor(AR.t/4)%2);
-      const col=flash?'#ff5a6a':h.col;
-      const pal={o:'#0d1320',k:darken(h.col,0.5),s:'#f0c89a',e:'#10161e',c:col,l:lighten(col,1.35),d:darken(col,0.68),b:'#2a3242',m:'#c8cfda'};
+      const A=flash?'#ff5a6a':h.col, hair=HAIR[h.job]||'#5a4a3a';
+      const pal={o:'#14121a',S:'#ffd6a5',K:'#e0a878',W:'#ffffff',J:'#2b2230',H:hair,h:darken(hair,0.6),A:A,a:darken(A,0.6),L:lighten(A,1.4),B:'#5a4632',b:'#3a2c20'};
       drawSprite(ctx,HERO_MAP,pal,px,py,sc);
+      drawHeadgear(ctx,h.job,h.col,px,py,sc);
       drawWeapon(ctx,h.job,px,py,sc,h.atk);
     });
     if(AR.heroes.length===0){ctx.fillStyle='#566275';ctx.font='11px monospace';ctx.fillText('（隊伍未上陣）',22,H/2);}
     if(AR.mon){
-      const m=AR.mon, msc=7*m.size;
+      const m=AR.mon, msc=6*m.size;
       const shakeX=m.shake>0?(Math.random()-0.5)*6:0; m.shake=Math.max(0,m.shake-0.08);
       let alpha=1, drop=0;
       if(m.dying>0){m.dying+=0.045;alpha=Math.max(0,1-m.dying);drop=m.dying*12;if(m.dying>=1)spawnMonster();}

@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>步步花開：皮克敏的庭院日誌</title>
+<style>
+  :root{
+    --grass1:#9ed36a; --grass2:#7cc04d; --soil:#8a5a3b;
+    --panel:#fffdf5; --panel2:#fff7e0; --ink:#3a3327; --ink2:#6b614c;
+    --gold:#f4c430; --accent:#ff7a5c;
+    --red:#ff5a4d; --yellow:#ffd23f; --blue:#4aa8ff; --purple:#9b6bd6;
+    --white:#f3f3f3; --rock:#9aa0a6; --pink:#ff9fc7;
+    --shadow:0 6px 18px rgba(60,45,20,.18);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;font-family:"Noto Sans TC","Segoe UI",system-ui,sans-serif;color:var(--ink);overscroll-behavior:none}
+  body{
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #d7f0ff 0%, transparent 60%),
+      linear-gradient(180deg,#bfe9ff 0%, #d9f3d0 45%, var(--grass1) 46%, var(--grass2) 100%);
+    background-attachment:fixed;
+    display:flex;flex-direction:column;align-items:center;min-height:100%;
+  }
+  #app{width:100%;max-width:480px;min-height:100vh;display:flex;flex-direction:column;position:relative}
+
+  /* ===== Top bar ===== */
+  .topbar{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,rgba(255,253,245,.96),rgba(255,253,245,.82));
+    backdrop-filter:blur(6px);padding:8px 10px;border-bottom:1px solid #00000010;display:flex;flex-direction:column;gap:6px}
+  .title{font-weight:800;font-size:15px;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
+  .title small{font-weight:500;font-size:11px;color:var(--ink2)}
+  .stats{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{background:var(--panel2);border:1px solid #00000010;border-radius:20px;padding:3px 9px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:4px;box-shadow:var(--shadow)}
+  .chip .ic{font-size:13px}
+
+  /* ===== Stage ===== */
+  .stage{position:relative;height:230px;overflow:hidden;flex:none;
+    background:
+      radial-gradient(60px 30px at 18% 86%, rgba(255,255,255,.25), transparent 70%),
+      radial-gradient(80px 40px at 78% 90%, rgba(255,255,255,.18), transparent 70%);
+  }
+  .weatherLayer{position:absolute;inset:0;pointer-events:none;z-index:5}
+  .sun{position:absolute;top:14px;right:18px;width:46px;height:46px;border-radius:50%;
+    background:radial-gradient(circle at 40% 40%,#fff6b0,#ffd23f 60%,#ffb43f);box-shadow:0 0 30px #ffd23f88;transition:.6s}
+  .ground{position:absolute;left:0;right:0;bottom:0;height:60px;background:linear-gradient(180deg,#86c14b,#5fa634);
+    border-top:4px solid #6fb23e}
+  .ground:before{content:"";position:absolute;inset:0;background:
+    radial-gradient(8px 4px at 20% 30%, #00000010, transparent 70%),
+    radial-gradient(8px 4px at 60% 60%, #00000010, transparent 70%),
+    radial-gradient(8px 4px at 85% 40%, #00000010, transparent 70%)}
+  .pikminField{position:absolute;left:0;right:0;bottom:8px;top:60px;z-index:6}
+  .seedField{position:absolute;left:0;right:0;bottom:42px;height:60px;z-index:7;display:flex;justify-content:center;align-items:flex-end;gap:10px;flex-wrap:wrap}
+
+  /* Pikmin sprite */
+  .pk{position:absolute;width:44px;text-align:center;transition:left .9s ease, bottom .9s ease;cursor:pointer;user-select:none;filter:drop-shadow(0 3px 2px #00000025)}
+  .pk .body{width:26px;height:34px;margin:0 auto;border-radius:50% 50% 48% 48%/60% 60% 40% 40%;position:relative}
+  .pk .eye{position:absolute;top:11px;width:5px;height:8px;background:#222;border-radius:50%}
+  .pk .eye.l{left:6px}.pk .eye.r{right:6px}
+  .pk .eye:after{content:"";position:absolute;top:1px;left:1px;width:2px;height:2px;background:#fff;border-radius:50%}
+  .pk .leg{position:absolute;bottom:-5px;width:3px;height:6px;background:#e58b5a;border-radius:2px}
+  .pk .leg.l{left:8px}.pk .leg.r{right:8px}
+  .pk .stem{position:absolute;top:-14px;left:50%;transform:translateX(-50%);width:3px;height:14px;background:#3aa75a}
+  .pk .top{position:absolute;top:-26px;left:50%;transform:translateX(-50%);font-size:16px;line-height:1}
+  .pk .nick{font-size:9px;font-weight:800;background:#ffffffcc;border-radius:8px;padding:0 4px;margin-top:1px;display:inline-block;color:var(--ink)}
+  .pk.bounce .body{animation:bob 1.2s ease-in-out infinite}
+  .pk.busy{opacity:.55;filter:grayscale(.4) drop-shadow(0 3px 2px #00000025)}
+  .pk .acc{position:absolute;top:-30px;left:50%;transform:translateX(-50%);font-size:14px}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+
+  .seed{width:30px;text-align:center;cursor:pointer;animation:bob 1.6s ease-in-out infinite;filter:drop-shadow(0 3px 2px #00000030)}
+  .seed .sprout{font-size:13px}
+  .seed .pot{font-size:20px;line-height:1}
+  .seed .glow{position:absolute}
+
+  /* Rain */
+  .drop{position:absolute;top:-10px;width:2px;height:14px;background:linear-gradient(#bfe3ff,#7cc0ff);opacity:.6;border-radius:2px;animation:fall linear infinite}
+  @keyframes fall{to{transform:translateY(260px)}}
+  .star{position:absolute;width:3px;height:3px;background:#fff;border-radius:50%;opacity:.85;animation:tw 2s ease-in-out infinite}
+  @keyframes tw{0%,100%{opacity:.2}50%{opacity:1}}
+
+  /* floating numbers */
+  .float{position:absolute;font-weight:800;font-size:14px;color:#fff;text-shadow:0 1px 3px #0006;pointer-events:none;animation:floatUp 1s ease-out forwards;z-index:20}
+  @keyframes floatUp{from{transform:translateY(0);opacity:1}to{transform:translateY(-40px);opacity:0}}
+
+  /* ===== Walk button ===== */
+  .walkWrap{padding:10px;display:flex;gap:10px;align-items:center}
+  .walkBtn{flex:1;border:none;border-radius:18px;padding:14px;font-size:17px;font-weight:800;color:#fff;
+    background:linear-gradient(180deg,#ff9a6b,var(--accent));box-shadow:0 6px 0 #d85a40,var(--shadow);cursor:pointer;transition:.06s}
+  .walkBtn:active{transform:translateY(4px);box-shadow:0 2px 0 #d85a40}
+  .walkBtn small{display:block;font-weight:600;font-size:11px;opacity:.9}
+  .miniBtn{border:none;border-radius:16px;padding:12px 14px;font-weight:800;font-size:14px;background:linear-gradient(180deg,#ffe27a,var(--gold));
+    box-shadow:0 5px 0 #c9982a,var(--shadow);cursor:pointer;color:#5a4410;transition:.06s}
+  .miniBtn:active{transform:translateY(3px);box-shadow:0 2px 0 #c9982a}
+  .miniBtn:disabled{filter:grayscale(.6) opacity(.6);box-shadow:0 5px 0 #aaa;cursor:not-allowed}
+
+  /* ===== Tabs ===== */
+  .tabs{display:flex;gap:4px;padding:0 8px 6px;position:sticky;top:0;z-index:10}
+  .tab{flex:1;text-align:center;padding:8px 2px;border-radius:14px 14px 0 0;background:#ffffff88;font-weight:800;font-size:12px;cursor:pointer;color:var(--ink2);border:1px solid #00000008;border-bottom:none}
+  .tab.on{background:var(--panel);color:var(--ink);box-shadow:0 -3px 8px #0000000d}
+  .tab .e{font-size:16px;display:block}
+  .panelWrap{background:var(--panel);flex:1;border-radius:16px 16px 0 0;margin:0 8px;padding:10px;min-height:240px;box-shadow:var(--shadow)}
+  .panel{display:none}.panel.on{display:block;animation:fade .25s}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+
+  /* Cards */
+  .card{background:var(--panel2);border:1px solid #00000010;border-radius:14px;padding:10px;margin-bottom:10px;box-shadow:0 2px 6px #0000000a}
+  .row{display:flex;align-items:center;gap:10px}
+  .pkMini{width:40px;height:46px;flex:none;position:relative}
+  .grow{flex:1}
+  .name{font-weight:800;font-size:14px;display:flex;align-items:center;gap:6px}
+  .tag{font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;color:#fff}
+  .sub{font-size:11px;color:var(--ink2);margin-top:2px}
+  .bar{height:8px;background:#00000012;border-radius:6px;overflow:hidden;margin-top:5px}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,#ff9fc7,#ff5a8a);border-radius:6px;transition:.4s}
+  .statline{display:flex;gap:8px;font-size:11px;margin-top:4px;color:var(--ink2);font-weight:700;flex-wrap:wrap}
+  .btn{border:none;border-radius:10px;padding:7px 11px;font-weight:800;font-size:12px;cursor:pointer;background:#ffe27a;color:#5a4410;box-shadow:0 3px 0 #c9982a;transition:.06s}
+  .btn:active{transform:translateY(2px);box-shadow:0 1px 0 #c9982a}
+  .btn.green{background:#9ee37a;color:#1f5a18;box-shadow:0 3px 0 #5fa634}
+  .btn.blue{background:#8fd0ff;color:#14507a;box-shadow:0 3px 0 #3a8ad0}
+  .btn.ghost{background:#fff;color:var(--ink2);box-shadow:0 3px 0 #ccc}
+  .btn:disabled{filter:grayscale(.6) opacity(.55);box-shadow:0 3px 0 #bbb;cursor:not-allowed}
+  .btn.sm{padding:5px 8px;font-size:11px}
+
+  .essGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .essItem{background:var(--panel2);border-radius:12px;padding:8px 4px;text-align:center;font-weight:800;font-size:12px;border:1px solid #00000010}
+  .essItem .e{font-size:20px;display:block}
+  .essItem .n{display:block;font-size:18px;color:var(--ink)}
+  .essItem small{font-size:10px;color:var(--ink2);font-weight:600}
+
+  .expItem{display:flex;gap:10px;align-items:center}
+  .expIcon{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;background:#fff;flex:none;box-shadow:0 2px 4px #0000000d}
+  .req{font-size:11px;font-weight:700;color:var(--ink2)}
+  .req b{color:var(--accent)}
+
+  .codexGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .codexCell{background:var(--panel2);border-radius:12px;padding:8px 4px;text-align:center;border:1px solid #00000010;position:relative}
+  .codexCell.locked{filter:grayscale(1) opacity(.4)}
+  .codexCell .nm{font-size:11px;font-weight:800;margin-top:2px}
+  .codexCell .el{font-size:9px;color:var(--ink2)}
+  .codexCell .heart{position:absolute;top:4px;right:6px;font-size:11px}
+
+  .ach{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #00000012}
+  .ach .ae{font-size:22px;width:30px;text-align:center}
+  .ach.done .at{color:var(--ink)} .ach .at{color:var(--ink2)}
+  .ach .at b{font-size:12px} .ach .at small{display:block;font-size:10px}
+  .ach .chk{margin-left:auto;font-size:16px}
+
+  /* ===== Dialogue ===== */
+  .dlgScreen{position:fixed;inset:0;z-index:100;display:none;align-items:flex-end;justify-content:center;background:linear-gradient(180deg,#0004,#0007)}
+  .dlgScreen.on{display:flex}
+  .dlgBox{width:100%;max-width:480px;background:var(--panel);border-radius:22px 22px 0 0;padding:16px;box-shadow:0 -8px 30px #0005;animation:slideUp .3s}
+  @keyframes slideUp{from{transform:translateY(40px);opacity:.4}to{transform:translateY(0);opacity:1}}
+  .dlgWho{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .dlgAvatar{width:48px;height:54px;position:relative;flex:none}
+  .dlgName{font-weight:800;font-size:15px}
+  .dlgName .el{font-size:11px;color:var(--ink2);font-weight:600;margin-left:6px}
+  .dlgText{font-size:14.5px;line-height:1.7;min-height:64px;color:var(--ink)}
+  .dlgChoices{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .choice{border:none;text-align:left;background:var(--panel2);border:1px solid #00000012;border-radius:12px;padding:11px 13px;font-size:13.5px;font-weight:700;cursor:pointer;transition:.1s;color:var(--ink)}
+  .choice:active{transform:scale(.98)}
+  .choice:hover{background:#fff2cf}
+  .dlgNext{margin-top:12px;text-align:center;font-size:12px;color:var(--ink2);font-weight:700}
+  .dlgNext .b{display:inline-block;background:var(--gold);color:#5a4410;border-radius:12px;padding:8px 22px;box-shadow:0 3px 0 #c9982a;cursor:pointer}
+
+  /* toast */
+  .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+  .toastItem{background:#3a3327ee;color:#fff;padding:9px 16px;border-radius:20px;font-size:13px;font-weight:700;box-shadow:var(--shadow);animation:toastIn .3s, toastOut .3s 2.4s forwards}
+  @keyframes toastIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @keyframes toastOut{to{transform:translateY(-10px);opacity:0}}
+
+  /* modal */
+  .modal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;background:#0006;padding:18px}
+  .modal.on{display:flex}
+  .modalBox{background:var(--panel);border-radius:20px;padding:18px;max-width:380px;width:100%;box-shadow:var(--shadow);text-align:center;animation:slideUp .25s}
+  .modalBox h3{margin:6px 0 4px}
+  .accGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}
+  .accPick{background:var(--panel2);border:2px solid transparent;border-radius:12px;padding:10px 0;font-size:24px;cursor:pointer}
+  .accPick.sel{border-color:var(--accent);background:#fff2cf}
+
+  .footer{font-size:10px;color:#ffffffcc;text-align:center;padding:8px;text-shadow:0 1px 2px #0004}
+  .hint{font-size:11px;color:var(--ink2);background:#fff7e0;border-radius:10px;padding:7px 10px;margin-bottom:8px;border:1px dashed #00000018}
+  .empty{text-align:center;color:var(--ink2);font-size:12px;padding:20px 8px}
+  .pill{display:inline-block;background:#00000010;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:800;margin-left:4px}
+
+  .selGlow{outline:3px solid var(--gold);outline-offset:2px;border-radius:50%}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="title">🌸 步步花開 <small>皮克敏的庭院日誌</small>
+      <span style="margin-left:auto;cursor:pointer" id="menuBtn">⚙️</span>
+    </div>
+    <div class="stats">
+      <div class="chip"><span class="ic">👣</span><span id="stStep">0</span></div>
+      <div class="chip"><span class="ic">✨</span><span id="stEss">0</span></div>
+      <div class="chip"><span class="ic">🌼</span><span id="stPk">0</span></div>
+      <div class="chip" id="weatherChip"><span class="ic">☀️</span><span id="stDay">第1天</span></div>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="weatherLayer" id="weatherLayer"></div>
+    <div class="sun" id="sun"></div>
+    <div class="ground"></div>
+    <div class="pikminField" id="pikminField"></div>
+    <div class="seedField" id="seedField"></div>
+  </div>
+
+  <div class="walkWrap">
+    <button class="walkBtn" id="walkBtn">🚶 散步注入能量
+      <small id="walkSub">每次 +12 步｜長按可連續散步</small>
+    </button>
+    <button class="miniBtn" id="pluckBtn">🌱 拔花苗<br><small style="font-weight:600;font-size:10px" id="pluckCost">30步</small></button>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-tab="garden"><span class="e">🌿</span>夥伴</div>
+    <div class="tab" data-tab="feed"><span class="e">✨</span>餵食</div>
+    <div class="tab" data-tab="expedition"><span class="e">🗺️</span>探險</div>
+    <div class="tab" data-tab="codex"><span class="e">📚</span>圖鑑</div>
+    <div class="tab" data-tab="achieve"><span class="e">🏆</span>成就</div>
+  </div>
+
+  <div class="panelWrap">
+    <div class="panel on" id="panel-garden"></div>
+    <div class="panel" id="panel-feed"></div>
+    <div class="panel" id="panel-expedition"></div>
+    <div class="panel" id="panel-codex"></div>
+    <div class="panel" id="panel-achieve"></div>
+  </div>
+
+  <div class="footer">皮克敏的庭院日誌 · 多走幾步，花就會開 🌸</div>
+</div>
+
+<!-- Dialogue -->
+<div class="dlgScreen" id="dlgScreen">
+  <div class="dlgBox">
+    <div class="dlgWho">
+      <div class="dlgAvatar" id="dlgAvatar"></div>
+      <div class="dlgName" id="dlgName"></div>
+    </div>
+    <div class="dlgText" id="dlgText"></div>
+    <div class="dlgChoices" id="dlgChoices"></div>
+    <div class="dlgNext" id="dlgNext"><span class="b" id="dlgNextBtn">▼ 繼續</span></div>
+  </div>
+</div>
+
+<!-- Accessory modal -->
+<div class="modal" id="accModal">
+  <div class="modalBox">
+    <div style="font-size:30px">💖</div>
+    <h3 id="accTitle">親密度滿級！</h3>
+    <p style="font-size:13px;color:var(--ink2);margin:4px 0" id="accDesc"></p>
+    <div class="accGrid" id="accGrid"></div>
+    <button class="btn green" id="accConfirm">配戴飾品 ✨</button>
+  </div>
+</div>
+
+<!-- Menu modal -->
+<div class="modal" id="menuModal">
+  <div class="modalBox">
+    <h3>⚙️ 設定</h3>
+    <p style="font-size:12px;color:var(--ink2)">遊戲會自動存檔於此瀏覽器。</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
+      <button class="btn green" id="btnSave">💾 立即存檔</button>
+      <button class="btn blue" id="btnReplay">📖 重看序章</button>
+      <button class="btn ghost" id="btnClose">關閉</button>
+      <button class="btn" style="background:#ffb3a3;color:#7a2414;box-shadow:0 3px 0 #d85a40" id="btnReset">🗑️ 重置存檔</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   步步花開：皮克敏的庭院日誌
+   單檔網頁遊戲 — 純前端，localStorage 存檔
+========================================================= */
+const $=(s,el=document)=>el.querySelector(s);
+const $$=(s,el=document)=>[...el.querySelectorAll(s)];
+const rnd=(a,b)=>Math.random()*(b-a)+a;
+const ri=(a,b)=>Math.floor(rnd(a,b+1));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+/* ---------- 皮克敏圖鑑定義 ---------- */
+const TYPES={
+  red:   {name:'小紅',color:'var(--red)',  element:'火',  role:'力量型',power:3, speed:1, emoji:'🔴',
+          desc:'熱情、勇敢、急性子。喜歡戰鬥和拔蘑菇。',like:'sun',
+          lines:['嗶！隊長！前面有蘋果的味道！','衝啊！讓我來搬最重的！','火？我才不怕呢！']},
+  yellow:{name:'小黃',color:'var(--yellow)',element:'電', role:'靈敏型',power:1, speed:3, emoji:'🟡',
+          desc:'好奇心旺盛、喜歡高處、有點調皮。',like:'sun',
+          lines:['把我丟到高高的地方嘛！','樹上是不是還有東西？','滋滋～我充滿電了！']},
+  blue:  {name:'小藍',color:'var(--blue)', element:'水',  role:'平衡型',power:2, speed:2, emoji:'🔵',
+          desc:'溫和、冷靜、喜歡水與雨天。',like:'rain',
+          lines:['今天的天氣真舒服呢。','慢慢來，我們會做得很好的。','下雨了，我最喜歡了～']},
+  purple:{name:'大紫',color:'var(--purple)',element:'重力',role:'力量型',power:10,speed:1, emoji:'🟣',
+          desc:'慵懶、貪吃、力氣超大、語速慢。',like:'any',
+          lines:['呼啊…隊長…有甜甜圈嗎…','這個…交給我…一個就夠了…','搬完…我要睡午覺…']},
+  white: {name:'小白',color:'var(--white)', element:'毒',  role:'敏捷型',power:1, speed:5, emoji:'⚪',
+          desc:'神經質、速度極快、對氣味敏感。',like:'night',
+          lines:['我去前面偵查過了，很安全！','我的速度最快了！','這裡有奇怪的味道…要小心！']},
+  rock:  {name:'小岩',color:'var(--rock)', element:'破壞',role:'破壞型',power:4, speed:1, emoji:'🪨',
+          desc:'固執、橫衝直撞、說話像石頭一樣生硬。',like:'any',special:'break',
+          lines:['撞碎了。前面，可以走了。','障礙。我來。','石頭。不怕。']},
+  pink:  {name:'小粉',color:'var(--pink)', element:'飛行',role:'偵查型',power:1, speed:4, emoji:'🌸',
+          desc:'浪漫、愛做夢、總是在天上飛。',like:'any',special:'fly',
+          lines:['我飛過那堵牆幫你拿東西囉～','天上的風景好美呀。','給你一張明信片，當作禮物。']},
+};
+const ORDER=['red','yellow','blue','purple','white','rock','pink'];
+const GROW={leaf:{n:'葉子',mult:1,emoji:'🍃'},bud:{n:'花苞',mult:1.4,emoji:'🌱'},flower:{n:'花朵',mult:2,emoji:'🌸'}};
+const ACCESSORIES=['☕','🎀','🍩','🌟','🍓','🎩','🌼','🐚','🍄','🦋','🍯','💎'];
+
+/* ---------- 探險任務 ---------- */
+const EXPEDITIONS=[
+  {id:'lemon', icon:'🍋', name:'搬運巨大檸檬', power:5, time:8, area:0,
+   reward:{ess:{yellow:3,blue:2}, step:0, postcard:false}, desc:'又酸又香，需要齊力滾回基地。'},
+  {id:'apple', icon:'🍎', name:'採收紅蘋果', power:3, time:6, area:0,
+   reward:{ess:{red:3}, step:20}, desc:'草叢裡的甜美果實。'},
+  {id:'mush', icon:'🍄', name:'拔除毒蘑菇', power:4, time:7, area:0,
+   reward:{ess:{white:3,red:1}}, desc:'危險！最好帶上敏捷的夥伴。'},
+  {id:'crystal', icon:'💎', name:'敲碎擋路水晶', power:6, time:10, area:0, needRock:true, unlockArea:1,
+   reward:{ess:{rock:2}, step:40}, desc:'雨後出現的水晶，只有破壞型能砸開。'},
+  {id:'honey', icon:'🍯', name:'運回野生蜂蜜', power:8, time:12, area:1,
+   reward:{ess:{purple:3,yellow:2}, step:30}, desc:'沉甸甸的蜜罐，需要大力士。'},
+  {id:'postcard', icon:'✉️', name:'空中取明信片', power:2, time:9, area:1, needFly:true,
+   reward:{ess:{pink:2}, postcard:true}, desc:'卡在高牆對面，只有會飛的小粉拿得到。'},
+  {id:'watermelon', icon:'🍉', name:'搬運大西瓜', power:14, time:16, area:1,
+   reward:{ess:{red:3,blue:3,purple:2}, step:60}, desc:'庭院傳說中最重的果實。'},
+];
+
+/* ---------- 成就 ---------- */
+const ACHIEVEMENTS=[
+  {id:'firstWalk', e:'👣', t:'初次散步', d:'累積你的第一步', chk:s=>s.totalSteps>0},
+  {id:'firstPk',   e:'🌱', t:'初次相遇', d:'拔出第一隻皮克敏', chk:s=>s.pikmin.length>=1},
+  {id:'firstFlower',e:'🌸', t:'花開了',   d:'讓一隻皮克敏開花', chk:s=>s.pikmin.some(p=>p.growth==='flower')},
+  {id:'allColors', e:'🌈', t:'七彩庭院', d:'集滿七種顏色', chk:s=>new Set(s.pikmin.map(p=>p.type)).size>=7},
+  {id:'firstExp',  e:'🗺️', t:'探險家',   d:'完成第一次探險', chk:s=>s.expDone>=1},
+  {id:'exp10',     e:'🏕️', t:'資深隊長', d:'完成 10 次探險', chk:s=>s.expDone>=10},
+  {id:'maxLove',   e:'💖', t:'心意相通', d:'親密度首次滿級', chk:s=>s.decor.length>=1},
+  {id:'postcard3', e:'✉️', t:'明信片收藏家', d:'收集 3 張明信片', chk:s=>s.postcards>=3},
+  {id:'army',      e:'👑', t:'庭院大軍', d:'同時擁有 12 隻皮克敏', chk:s=>s.pikmin.length>=12},
+  {id:'step1000',  e:'🌟', t:'千里之行', d:'累積 1000 步', chk:s=>s.totalSteps>=1000},
+];
+
+/* ---------- 存檔 ---------- */
+const SAVE_KEY='pikmin_garden_save_v1';
+let S=null;
+function freshState(){
+  return {
+    steps:0, totalSteps:0, day:1, dayProgress:0,
+    ess:{red:0,yellow:0,blue:0,purple:0,white:0,rock:0,pink:0},
+    pikmin:[], seeds:[], nextId:1,
+    expeditions:[], expDone:0,
+    unlockedArea:0, postcards:0,
+    decor:[], // {type, accessory}
+    achGot:[], story:0, lastTs:Date.now(),
+  };
+}
+function load(){
+  try{const r=localStorage.getItem(SAVE_KEY);if(r){S=JSON.parse(r);// migrate
+    const f=freshState();for(const k in f)if(!(k in S))S[k]=f[k];return true;}}catch(e){}
+  S=freshState();return false;
+}
+let _noSave=false;
+function save(){if(_noSave)return;S.lastTs=Date.now();localStorage.setItem(SAVE_KEY,JSON.stringify(S));}
+
+/* ---------- 天氣 / 日夜 ---------- */
+const WEATHERS=[
+  {id:'sun',  name:'晴天', icon:'☀️'},
+  {id:'rain', name:'雨天', icon:'🌧️'},
+  {id:'night',name:'夜晚', icon:'🌙'},
+];
+function curWeather(){
+  // 依天數決定當天天氣（穩定）
+  const seq=['sun','sun','rain','sun','night','rain','sun','night'];
+  return WEATHERS.find(w=>w.id===seq[(S.day-1)%seq.length]);
+}
+function weatherBonus(type){
+  const w=curWeather().id, like=TYPES[type].like;
+  if(like===w) return 1.5;
+  if(like==='any') return 1.1;
+  return 1;
+}
+
+/* ---------- 皮克敏 sprite 生成 ---------- */
+function pkSprite(type,growth,accessory,nick,small){
+  const t=TYPES[type];
+  const top = accessory ? `<div class="acc">${accessory}</div>` :
+              `<div class="top">${growth==='flower'?'🌺':growth==='bud'?'🌱':'🍃'}</div>`;
+  const nickHtml = (!small && nick)?`<div class="nick">${nick}</div>`:'';
+  return `
+    ${top}
+    <div class="stem"></div>
+    <div class="body" style="background:linear-gradient(180deg,${shade(t.color,18)},${t.color})">
+      <div class="eye l"></div><div class="eye r"></div>
+      <div class="leg l"></div><div class="leg r"></div>
+    </div>${nickHtml}`;
+}
+function shade(c,p){ // lighten CSS var by overlay — simple approach returns same (visual gradient handled)
+  return 'rgba(255,255,255,.35)';
+}
+
+/* ---------- 渲染：舞台上的皮克敏 ---------- */
+let selectedPk=null; // for feeding
+function renderStage(){
+  const field=$('#pikminField');
+  field.innerHTML='';
+  const w=field.clientWidth||440;
+  S.pikmin.forEach((p,i)=>{
+    const el=document.createElement('div');
+    el.className='pk bounce'+(p.busyUntil?' busy':'');
+    if(selectedPk===p.id) el.classList.add('selGlow');
+    const x=(i%6)*(w/6)+rnd(4,16);
+    const y=Math.floor(i/6)*26+rnd(2,14);
+    el.style.left=clamp(x,2,w-46)+'px';
+    el.style.bottom=y+'px';
+    el.style.animationDelay=(i*0.15)+'s';
+    el.innerHTML=pkSprite(p.type,p.growth,p.accessory,p.nick);
+    el.onclick=()=>onPkTap(p);
+    field.appendChild(el);
+  });
+  // seeds
+  const sf=$('#seedField');sf.innerHTML='';
+  S.seeds.forEach(sd=>{
+    const el=document.createElement('div');
+    el.className='seed';el.title='點我拔出皮克敏';
+    el.innerHTML=`<div class="sprout">🌿</div><div class="pot" style="filter:hue-rotate(${seedHue(sd.type)}deg)">🪴</div>`;
+    el.onclick=()=>pluckSeed(sd);
+    sf.appendChild(el);
+  });
+}
+function seedHue(t){return {red:0,yellow:50,blue:200,purple:270,white:0,rock:0,pink:320}[t]||0;}
+
+function onPkTap(p){
+  if(p.busyUntil){toast(`${p.nick||TYPES[p.type].name} 正在探險中…`);return;}
+  // speak + select for feeding
+  speakBubble(p);
+  selectedPk=p.id;
+  switchTab('feed');
+  renderFeed();renderStage();
+}
+function speakBubble(p){
+  const line=pick(TYPES[p.type].lines);
+  toast(`${p.nick||TYPES[p.type].name}：「${line}」`);
+}
+
+/* ---------- 浮動數字 ---------- */
+function floatText(txt,x,y){
+  const f=document.createElement('div');f.className='float';f.textContent=txt;
+  f.style.left=x+'px';f.style.top=y+'px';
+  $('#stage').appendChild(f);setTimeout(()=>f.remove(),1000);
+}
+
+/* ---------- 散步 ---------- */
+const WALK_GAIN=12, PLUCK_COST=30;
+function walk(){
+  const gain=WALK_GAIN;
+  S.steps+=gain;S.totalSteps+=gain;
+  S.dayProgress+=gain;
+  if(S.dayProgress>=120){S.dayProgress-=120;advanceDay();}
+  const st=$('#stage');
+  floatText('+'+gain,rnd(st.clientWidth*0.3,st.clientWidth*0.6),rnd(120,170));
+  // 偶爾長出花苗
+  if(Math.random()<0.18 && S.seeds.length<3) spawnSeed();
+  updateTop();checkAch();maybeStory();save();
+}
+function advanceDay(){
+  S.day++;updateWeather();toast('🌅 新的一天：'+curWeather().name+' '+curWeather().icon);
+}
+function spawnSeed(type){
+  type=type||pick(unlockedTypes());
+  S.seeds.push({type});renderStage();
+  toast('🌱 庭院冒出了新的'+TYPES[type].name+'花苗！');
+}
+function unlockedTypes(){
+  // 隨進度解鎖更多顏色
+  let base=['red','yellow','blue'];
+  if(S.totalSteps>120) base.push('purple','white');
+  if(S.unlockedArea>=1) base.push('rock','pink');
+  if(S.story>=4) base=['red','yellow','blue','purple','white','rock','pink'];
+  return base;
+}
+
+/* ---------- 拔花苗 ---------- */
+function pluckBtn(){
+  if(S.seeds.length>0){pluckSeed(S.seeds[0]);return;}
+  if(S.steps<PLUCK_COST){toast('步數不足！先去散步吧 🚶');return;}
+  S.steps-=PLUCK_COST;
+  spawnSeed();
+  setTimeout(()=>{if(S.seeds.length)pluckSeed(S.seeds[0]);},250);
+  updateTop();save();
+}
+function pluckSeed(sd){
+  const idx=S.seeds.indexOf(sd);if(idx>=0)S.seeds.splice(idx,1);
+  const p=newPikmin(sd.type);
+  S.pikmin.push(p);
+  toast('✨ 拔出了一隻'+TYPES[sd.type].name+'！');
+  // story trigger for very first pikmin
+  if(S.pikmin.length===1 && S.story===0){startStory();}
+  renderStage();renderGarden();updateTop();checkAch();save();
+}
+function newPikmin(type){
+  return {id:S.nextId++, type, growth:'leaf', intimacy:0, loveLv:0, accessory:null, nick:null, busyUntil:0};
+}
+
+/* ---------- 餵食 ---------- */
+function feed(p){
+  const need=p.type;
+  if(S.ess[need]<=0){toast('沒有'+TYPES[need].element+'屬性精華了，去探險取得吧！');return;}
+  S.ess[need]--;
+  p.intimacy+=20;
+  // growth progression
+  if(p.growth==='leaf' && p.intimacy>=20)p.growth='bud';
+  else if(p.growth==='bud' && p.intimacy>=60)p.growth='flower';
+  // love level (every 100)
+  const newLv=Math.floor(p.intimacy/100);
+  if(newLv>p.loveLv){p.loveLv=newLv; onLoveUp(p);}
+  const st=$('#stage');floatText('💗',rnd(80,260),rnd(110,150));
+  toast((p.nick||TYPES[p.type].name)+' 開心地轉了個圈！親密度上升～');
+  updateTop();renderFeed();renderStage();renderGarden();checkAch();save();
+}
+function onLoveUp(p){
+  if(p.loveLv>=5 && !p.accessory){openAccessory(p);}
+  else toast('💞 '+(p.nick||TYPES[p.type].name)+' 親密度提升到 Lv.'+p.loveLv+'！');
+}
+
+/* ---------- 飾品（親密度滿級）---------- */
+let accTarget=null, accChosen=null;
+function openAccessory(p){
+  accTarget=p;accChosen=null;
+  $('#accTitle').textContent='💖 '+TYPES[p.type].name+' 的心意';
+  $('#accDesc').textContent='「隊長！謝謝你一直帶我散步、餵我吃精華。我找到了這個想送給你～」選一個飾品戴上吧！';
+  const g=$('#accGrid');g.innerHTML='';
+  // offer 8 random accessories
+  const opts=[...ACCESSORIES].sort(()=>Math.random()-0.5).slice(0,8);
+  opts.forEach(a=>{
+    const d=document.createElement('div');d.className='accPick';d.textContent=a;
+    d.onclick=()=>{$$('.accPick').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');accChosen=a;};
+    g.appendChild(d);
+  });
+  $('#accModal').classList.add('on');
+}
+$('#accConfirm').onclick=()=>{
+  if(!accChosen){toast('先選一個飾品吧～');return;}
+  accTarget.accessory=accChosen;
+  accTarget.nick=ACC_NICK(accChosen)+TYPES[accTarget.type].name;
+  if(!S.decor.find(d=>d.type===accTarget.type&&d.accessory===accChosen))
+    S.decor.push({type:accTarget.type,accessory:accChosen});
+  $('#accModal').classList.remove('on');
+  toast('🎀 誕生了「'+accTarget.nick+'」！已收入圖鑑');
+  renderStage();renderGarden();renderCodex();checkAch();save();
+};
+function ACC_NICK(a){return {'☕':'咖啡杯','🎀':'蝴蝶結','🍩':'甜甜圈','🌟':'星星','🍓':'草莓','🎩':'紳士','🌼':'雛菊','🐚':'貝殼','🍄':'蘑菇','🦋':'蝴蝶','🍯':'蜂蜜','💎':'寶石'}[a]||'飾品';}
+
+/* ---------- 探險 ---------- */
+let expSelect=null; // {expId, members:Set}
+function availableExp(){return EXPEDITIONS.filter(e=>e.area<=S.unlockedArea);}
+function openExpSelect(exp){
+  expSelect={expId:exp.id,members:new Set()};
+  renderExpedition();
+}
+function toggleMember(p){
+  if(!expSelect)return;
+  if(p.busyUntil){toast('這隻正在探險中');return;}
+  if(expSelect.members.has(p.id))expSelect.members.delete(p.id);
+  else expSelect.members.add(p.id);
+  renderExpedition();
+}
+function teamPower(ids){
+  let pw=0;
+  ids.forEach(id=>{const p=S.pikmin.find(x=>x.id===id);if(!p)return;
+    pw+=TYPES[p.type].power*GROW[p.growth].mult*weatherBonus(p.type);});
+  return Math.round(pw);
+}
+function teamSpeed(ids){
+  let sp=0,n=0;ids.forEach(id=>{const p=S.pikmin.find(x=>x.id===id);if(p){sp+=TYPES[p.type].speed;n++;}});
+  return n?sp/n:1;
+}
+function launchExp(){
+  const exp=EXPEDITIONS.find(e=>e.id===expSelect.expId);
+  const ids=[...expSelect.members];
+  if(ids.length===0){toast('至少派出一隻皮克敏');return;}
+  const pw=teamPower(ids);
+  if(pw<exp.power){toast('💪 力量不足！需要 '+exp.power+'，目前只有 '+pw+'。讓他們開花或多帶幾隻吧！');return;}
+  if(exp.needRock && !ids.some(id=>TYPES[S.pikmin.find(p=>p.id===id).type].special==='break')){
+    toast('🪨 這個障礙需要帶上小岩（破壞型）才能敲碎！');return;}
+  if(exp.needFly && !ids.some(id=>TYPES[S.pikmin.find(p=>p.id===id).type].special==='fly')){
+    toast('🌸 對面太遠了，需要帶上會飛的小粉！');return;}
+  const spd=teamSpeed(ids);
+  const dur=Math.max(3,Math.round(exp.time/ (0.6+spd*0.18)));
+  const until=Date.now()+dur*1000;
+  ids.forEach(id=>{const p=S.pikmin.find(x=>x.id===id);p.busyUntil=until;});
+  S.expeditions.push({expId:exp.id,members:ids,until});
+  expSelect=null;
+  toast('🚩 出發！'+exp.name+'（約 '+dur+' 秒）');
+  renderExpedition();renderStage();save();
+}
+function checkExpeditions(){
+  const now=Date.now();let changed=false;
+  S.expeditions=S.expeditions.filter(ex=>{
+    if(now>=ex.until){completeExp(ex);changed=true;return false;}
+    return true;
+  });
+  // clear busy flags
+  S.pikmin.forEach(p=>{if(p.busyUntil&&now>=p.busyUntil)p.busyUntil=0;});
+  if(changed){renderStage();renderGarden();}
+}
+function completeExp(ex){
+  const exp=EXPEDITIONS.find(e=>e.id===ex.expId);if(!exp)return;
+  const r=exp.reward;let msg='✅ 完成「'+exp.name+'」！獲得：';
+  if(r.ess)for(const k in r.ess){S.ess[k]+=r.ess[k];msg+=' '+TYPES[k].emoji+'×'+r.ess[k];}
+  if(r.step){S.steps+=r.step;S.totalSteps+=r.step;msg+=' 👣×'+r.step;}
+  if(r.postcard){S.postcards++;msg+=' ✉️×1';}
+  // 親密度回饋
+  ex.members.forEach(id=>{const p=S.pikmin.find(x=>x.id===id);if(p){p.busyUntil=0;p.intimacy+=10;
+    const nl=Math.floor(p.intimacy/100);if(nl>p.loveLv){p.loveLv=nl;onLoveUp(p);}}});
+  S.expDone++;
+  if(exp.unlockArea && S.unlockedArea<exp.unlockArea){
+    S.unlockedArea=exp.unlockArea;
+    toast('🔓 新區域解鎖！更多花苗與探險出現了');
+  }
+  toast(msg);
+  updateTop();checkAch();maybeStory();save();
+}
+
+/* ---------- 成就 ---------- */
+function checkAch(){
+  ACHIEVEMENTS.forEach(a=>{
+    if(!S.achGot.includes(a.id)&&a.chk(S)){S.achGot.push(a.id);toast('🏆 成就達成：'+a.t);}
+  });
+  renderAchieve();
+}
+
+/* =========================================================
+   渲染各分頁
+========================================================= */
+function renderGarden(){
+  const el=$('#panel-garden');
+  if(S.pikmin.length===0){el.innerHTML='<div class="empty">庭院還空空的～<br>點「🌱 拔花苗」或多散步，拔出你的第一隻皮克敏吧！</div>';return;}
+  el.innerHTML='<div class="hint">點皮克敏頭像可聽他說話並前往餵食。開花能大幅提升探險力量 🌸</div>'+
+    S.pikmin.map(p=>{
+    const t=TYPES[p.type];
+    const lovePct=Math.min(100,(p.intimacy%100));
+    const pw=Math.round(t.power*GROW[p.growth].mult);
+    return `<div class="card"><div class="row">
+      <div class="pkMini">${pkSpriteMini(p)}</div>
+      <div class="grow">
+        <div class="name">${p.nick||t.name}
+          <span class="tag" style="background:${t.color}">${t.element}</span>
+          ${p.accessory?'<span class="pill">飾品</span>':''}
+        </div>
+        <div class="sub">${t.role}｜${GROW[p.growth].n} ${GROW[p.growth].emoji}｜💖Lv.${p.loveLv}</div>
+        <div class="statline"><span>💪力量 ${pw}</span><span>⚡速度 ${t.speed}</span>
+          <span>${weatherBonus(p.type)>1?'🌤️天氣加成 ×'+weatherBonus(p.type):''}</span></div>
+        <div class="bar"><i style="width:${lovePct}%"></i></div>
+      </div>
+      <button class="btn green sm" ${p.busyUntil?'disabled':''} onclick="feedById(${p.id})">✨餵食</button>
+    </div></div>`;
+  }).join('');
+}
+function pkSpriteMini(p){
+  const t=TYPES[p.type];
+  const top=p.accessory?`<div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%);font-size:13px">${p.accessory}</div>`
+    :`<div style="position:absolute;top:-4px;left:50%;transform:translateX(-50%);font-size:13px">${p.growth==='flower'?'🌺':p.growth==='bud'?'🌱':'🍃'}</div>`;
+  return `<div style="position:relative;width:40px;height:46px">
+    ${top}
+    <div style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:24px;height:30px;border-radius:50% 50% 48% 48%/60% 60% 40% 40%;background:${t.color}">
+      <div style="position:absolute;top:9px;left:5px;width:4px;height:7px;background:#222;border-radius:50%"></div>
+      <div style="position:absolute;top:9px;right:5px;width:4px;height:7px;background:#222;border-radius:50%"></div>
+    </div></div>`;
+}
+window.feedById=id=>{const p=S.pikmin.find(x=>x.id===id);if(p)feed(p);};
+
+function renderFeed(){
+  const el=$('#panel-feed');
+  const essHtml=`<div class="essGrid">${ORDER.map(k=>`
+    <div class="essItem"><span class="e">${TYPES[k].emoji}</span><span class="n">${S.ess[k]}</span>
+    <small>${TYPES[k].element}精華</small></div>`).join('')}</div>`;
+  let body='';
+  if(S.pikmin.length===0){body='<div class="empty">還沒有夥伴可以餵食</div>';}
+  else{
+    const sel=S.pikmin.find(p=>p.id===selectedPk);
+    body='<div class="hint">餵食對應屬性的精華 → 葉子🍃 → 花苞🌱 → 花朵🌸，並提升親密度💖。精華主要靠探險取得。</div>';
+    body+=S.pikmin.map(p=>{
+      const t=TYPES[p.type];const can=S.ess[p.type]>0&&!p.busyUntil;
+      return `<div class="card ${p.id===selectedPk?'':''}" style="${p.id===selectedPk?'outline:2px solid var(--gold)':''}">
+        <div class="row">
+          <div class="pkMini">${pkSpriteMini(p)}</div>
+          <div class="grow"><div class="name">${p.nick||t.name}</div>
+            <div class="sub">需要 ${TYPES[p.type].emoji} ${t.element}精華（庫存 ${S.ess[p.type]}）</div>
+            <div class="bar"><i style="width:${p.intimacy%100}%"></i></div></div>
+          <button class="btn green sm" ${can?'':'disabled'} onclick="feedById(${p.id})">餵食</button>
+        </div></div>`;
+    }).join('');
+  }
+  el.innerHTML='<h4 style="margin:2px 0 8px">✨ 精華庫存</h4>'+essHtml+'<h4 style="margin:14px 0 8px">🍽️ 餵食夥伴</h4>'+body;
+}
+
+function renderExpedition(){
+  const el=$('#panel-expedition');
+  // running
+  let running='';
+  if(S.expeditions.length){
+    running='<h4 style="margin:2px 0 8px">⏳ 進行中</h4>'+S.expeditions.map(ex=>{
+      const exp=EXPEDITIONS.find(e=>e.id===ex.expId);
+      const left=Math.max(0,Math.ceil((ex.until-Date.now())/1000));
+      return `<div class="card"><div class="expItem"><div class="expIcon">${exp.icon}</div>
+        <div class="grow"><div class="name">${exp.name}</div>
+        <div class="sub">隊員 ${ex.members.length} 隻 · 剩餘 ${left} 秒</div>
+        <div class="bar"><i style="width:${100-left/exp.time*100}%;background:linear-gradient(90deg,#9ee37a,#5fa634)"></i></div></div></div></div>`;
+    }).join('');
+  }
+  // selection mode
+  if(expSelect){
+    const exp=EXPEDITIONS.find(e=>e.id===expSelect.expId);
+    const ids=[...expSelect.members];
+    const pw=teamPower(ids), ok=pw>=exp.power;
+    const memberList=S.pikmin.map(p=>{
+      const t=TYPES[p.type];const on=expSelect.members.has(p.id);const busy=!!p.busyUntil;
+      return `<div class="card" style="margin-bottom:6px;${on?'outline:2px solid var(--gold)':''};${busy?'opacity:.5':''}"
+        onclick="${busy?'':'toggleMemberById('+p.id+')'}">
+        <div class="row"><div class="pkMini">${pkSpriteMini(p)}</div>
+        <div class="grow"><div class="name">${p.nick||t.name} ${t.special==='break'?'🪨':''}${t.special==='fly'?'✈️':''}</div>
+        <div class="statline"><span>💪${Math.round(t.power*GROW[p.growth].mult*weatherBonus(p.type))}</span><span>⚡${t.speed}</span><span>${GROW[p.growth].emoji}${GROW[p.growth].n}</span></div></div>
+        <div style="font-size:20px">${on?'✅':'⬜'}</div></div></div>`;
+    }).join('');
+    el.innerHTML=running+`<div class="card" style="background:#fff7e0">
+        <div class="expItem"><div class="expIcon">${exp.icon}</div><div class="grow">
+        <div class="name">${exp.name}</div><div class="sub">${exp.desc}</div>
+        <div class="req">需要力量 <b>${exp.power}</b>${exp.needRock?'｜需 🪨破壞型':''}${exp.needFly?'｜需 ✈️飛行型':''}</div></div></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 2px">
+        <b style="color:${ok?'#2e8b2e':'var(--accent)'}">隊伍力量 ${pw} / ${exp.power}</b>
+        <span class="sub">速度越快越早回來 ⚡</span></div>
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <button class="btn green" style="flex:1" ${ok?'':''} onclick="launchExp()">🚩 出發探險</button>
+        <button class="btn ghost" onclick="cancelExp()">取消</button></div>
+      <h4 style="margin:8px 0 6px">選擇隊員（可多選）</h4>${memberList||'<div class="empty">沒有可派遣的夥伴</div>'}`;
+    return;
+  }
+  // list mode
+  const list=availableExp().map(exp=>{
+    const running=S.expeditions.find(e=>e.expId===exp.id);
+    return `<div class="card"><div class="expItem"><div class="expIcon">${exp.icon}</div>
+      <div class="grow"><div class="name">${exp.name} ${exp.area>0?'<span class="pill">區域'+(exp.area+1)+'</span>':''}</div>
+      <div class="sub">${exp.desc}</div>
+      <div class="req">需要力量 <b>${exp.power}</b>${exp.needRock?'｜🪨':''}${exp.needFly?'｜✈️':''} · 獎勵 ${rewardStr(exp.reward)}</div></div>
+      <button class="btn ${running?'':'green'} sm" ${running?'disabled':''} onclick="openExpById('${exp.id}')">${running?'進行中':'派遣'}</button>
+      </div></div>`;
+  }).join('');
+  el.innerHTML=running+'<div class="hint">不同皮克敏分工不同：💪大紫扛重物、⚡小白小粉跑得快、🪨小岩破障、✈️小粉空中收集。讓他們開花可增加力量！</div>'+list;
+}
+function rewardStr(r){let s='';if(r.ess)for(const k in r.ess)s+=TYPES[k].emoji+'×'+r.ess[k]+' ';if(r.step)s+='👣'+r.step+' ';if(r.postcard)s+='✉️';return s;}
+window.openExpById=id=>openExpSelect(EXPEDITIONS.find(e=>e.id===id));
+window.toggleMemberById=id=>toggleMember(S.pikmin.find(p=>p.id===id));
+window.cancelExp=()=>{expSelect=null;renderExpedition();};
+
+function renderCodex(){
+  const el=$('#panel-codex');
+  const owned=new Set(S.pikmin.map(p=>p.type));
+  const grid=ORDER.map(k=>{
+    const t=TYPES[k];const have=owned.has(k);
+    const decor=S.decor.filter(d=>d.type===k);
+    return `<div class="codexCell ${have?'':'locked'}">
+      ${decor.length?`<span class="heart">💖</span>`:''}
+      <div style="font-size:30px">${have?pkBig(k):'❔'}</div>
+      <div class="nm">${have?t.name:'？？？'}</div>
+      <div class="el">${have?t.element+'屬性':'未發現'}</div>
+      ${decor.length?`<div style="font-size:13px;margin-top:2px">${decor.map(d=>d.accessory).join('')}</div>`:''}
+    </div>`;
+  }).join('');
+  const collected=owned.size, total=ORDER.length;
+  el.innerHTML=`<div class="hint">收集進度 ${collected}/${total} 種顏色｜飾品皮克敏 ${S.decor.length} 種｜✉️明信片 ${S.postcards} 張</div>
+    <div class="codexGrid">${grid}</div>
+    <h4 style="margin:14px 0 6px">📖 角色檔案</h4>
+    ${ORDER.filter(k=>owned.has(k)).map(k=>{const t=TYPES[k];
+      return `<div class="card"><div class="name">${t.emoji} ${t.name} <span class="tag" style="background:${t.color}">${t.element}</span> <span class="pill">${t.role}</span></div>
+      <div class="sub" style="margin-top:4px">${t.desc}</div></div>`;}).join('')||'<div class="empty">尚未發現任何夥伴</div>'}`;
+}
+function pkBig(k){const t=TYPES[k];return `<span style="display:inline-block;width:30px;height:36px;position:relative">
+  <span style="position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:22px;height:28px;border-radius:50% 50% 48% 48%/60% 60% 40% 40%;background:${t.color}"></span></span>`;}
+
+function renderAchieve(){
+  const el=$('#panel-achieve');
+  const done=S.achGot.length;
+  el.innerHTML=`<div class="hint">成就進度 ${done}/${ACHIEVEMENTS.length} 🏆</div>`+
+  ACHIEVEMENTS.map(a=>{const got=S.achGot.includes(a.id);
+    return `<div class="ach ${got?'done':''}"><div class="ae">${got?a.e:'🔒'}</div>
+      <div class="at"><b>${a.t}</b><small>${a.d}</small></div>
+      <div class="chk">${got?'✅':'⬜'}</div></div>`;}).join('');
+}
+
+/* ---------- 頂部狀態 ---------- */
+function updateTop(){
+  $('#stStep').textContent=Math.floor(S.steps);
+  $('#stEss').textContent=Object.values(S.ess).reduce((a,b)=>a+b,0);
+  $('#stPk').textContent=S.pikmin.length;
+  $('#stDay').textContent='第'+S.day+'天';
+  const w=curWeather();
+  $('#weatherChip').querySelector('.ic').textContent=w.icon;
+}
+function updateWeather(){
+  const w=curWeather();
+  const sun=$('#sun'),layer=$('#weatherLayer'),stage=$('#stage');
+  layer.innerHTML='';
+  if(w.id==='night'){
+    stage.style.filter='brightness(.7) saturate(.9)';
+    sun.style.background='radial-gradient(circle at 40% 40%,#fff,#dfe7ff 60%,#aab6e0)';
+    sun.style.boxShadow='0 0 24px #c9d4ff88';
+    for(let i=0;i<22;i++){const s=document.createElement('div');s.className='star';
+      s.style.left=rnd(2,98)+'%';s.style.top=rnd(2,55)+'%';s.style.animationDelay=rnd(0,2)+'s';layer.appendChild(s);}
+  }else if(w.id==='rain'){
+    stage.style.filter='brightness(.92) saturate(1.05)';
+    sun.style.background='radial-gradient(circle at 40% 40%,#eee,#ccd 60%,#aab)';sun.style.boxShadow='none';
+    for(let i=0;i<26;i++){const d=document.createElement('div');d.className='drop';
+      d.style.left=rnd(0,100)+'%';d.style.animationDuration=rnd(.5,1.1)+'s';d.style.animationDelay=rnd(0,1)+'s';layer.appendChild(d);}
+  }else{
+    stage.style.filter='none';
+    sun.style.background='radial-gradient(circle at 40% 40%,#fff6b0,#ffd23f 60%,#ffb43f)';
+    sun.style.boxShadow='0 0 30px #ffd23f88';
+  }
+  updateTop();renderGarden();
+}
+
+/* =========================================================
+   劇情系統（依腳本）
+========================================================= */
+const STORY={
+  intro:[
+    {who:null,text:'一個陽光明媚的午後，你在散步時，發現路邊的花盆裡有一個紅色的花苗。多走幾步路注入能量吧…'},
+    {who:'red',text:'嗶！隊長！你終於把我拔出來了！我感覺充滿了力量，今天我們要去哪裡探險？前面那個草叢裡好像有蘋果的味道！',
+     choices:[
+       {t:'「冷靜點，我們先認識一下彼此吧。」',next:'A'},
+       {t:'「太好了，我們立刻出發去尋寶！」',next:'B'},
+     ]},
+  ],
+  A:[{who:'red',text:'好吧…既然隊長這麼說。我是紅色皮克敏，我不怕火喔！而且我的力氣很大。不過，我現在肚子有點餓了…'},
+     {who:null,text:'【提示】到「✨餵食」分頁，餵小紅吃紅色精華，就能讓他從葉子長出花苞，最後綻放紅花！親密度也會上升。'}],
+  B:[{who:'red',text:'衝啊！等等，隊長，我頭上只有葉子，跑不太快，如果能喝點「精華」就好了…'},
+     {who:null,text:'【提示】先去「🗺️探險」取得精華，再到「✨餵食」餵小紅。開花後力量會變強，就能搬動更大的東西！'}],
+};
+let storyQueue=[],storyIdx=0;
+function startStory(){runStory('intro');}
+function runStory(key){storyQueue=STORY[key]||[];storyIdx=0;if(storyQueue.length)showStoryStep();}
+function showStoryStep(){
+  const step=storyQueue[storyIdx];
+  const scr=$('#dlgScreen');scr.classList.add('on');
+  // avatar
+  if(step.who){const t=TYPES[step.who];
+    $('#dlgAvatar').innerHTML=pkSpriteMini({type:step.who,growth:'leaf',accessory:null});
+    $('#dlgName').innerHTML=t.name+'<span class="el">'+t.element+'屬性 · '+t.role+'</span>';
+  }else{$('#dlgAvatar').innerHTML='📖';$('#dlgName').innerHTML='庭院日誌';}
+  $('#dlgText').textContent=step.text;
+  const ch=$('#dlgChoices');ch.innerHTML='';
+  const nx=$('#dlgNext');
+  if(step.choices){
+    nx.style.display='none';
+    step.choices.forEach(c=>{const b=document.createElement('button');b.className='choice';b.textContent=c.t;
+      b.onclick=()=>{closeStory();setTimeout(()=>runStory(c.next),200);S.story=Math.max(S.story,1);save();};ch.appendChild(b);});
+  }else{
+    nx.style.display='block';
+    nx.querySelector('.b').onclick=()=>{storyIdx++;if(storyIdx<storyQueue.length)showStoryStep();else{closeStory();S.story=Math.max(S.story,2);save();}};
+  }
+}
+function closeStory(){$('#dlgScreen').classList.remove('on');}
+// 後續章節觸發（搬檸檬/解鎖區域時的旁白）
+function maybeStory(){
+  if(S.story<3 && S.expDone>=1){S.story=3;
+    setTimeout(()=>{toast('📖 第二章：吵鬧的尋寶小隊 — 試著集滿黃、藍夥伴，挑戰搬運巨大檸檬吧！');},600);}
+  if(S.story<4 && S.unlockedArea>=1){S.story=4;
+    setTimeout(()=>{toast('📖 小岩撞碎了水晶，新區域開啟！小粉也能飛去對面取明信片了 ✉️');},600);}
+}
+
+/* =========================================================
+   分頁切換
+========================================================= */
+function switchTab(name){
+  $$('.tab').forEach(t=>t.classList.toggle('on',t.dataset.tab===name));
+  $$('.panel').forEach(p=>p.classList.remove('on'));
+  $('#panel-'+name).classList.add('on');
+  if(name==='garden')renderGarden();
+  if(name==='feed')renderFeed();
+  if(name==='expedition')renderExpedition();
+  if(name==='codex')renderCodex();
+  if(name==='achieve')renderAchieve();
+}
+$$('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+
+/* ---------- toast ---------- */
+let toastTimer=null;
+function toast(msg){
+  const t=$('#toast');const d=document.createElement('div');d.className='toastItem';d.textContent=msg;
+  t.appendChild(d);setTimeout(()=>d.remove(),2800);
+  while(t.children.length>3)t.firstChild.remove();
+}
+
+/* ---------- 按鈕綁定 ---------- */
+$('#walkBtn').onclick=walk;
+$('#pluckBtn').onclick=pluckBtn;
+// 長按連續散步
+let holdTimer=null;
+$('#walkBtn').addEventListener('pointerdown',()=>{holdTimer=setInterval(walk,260);});
+['pointerup','pointerleave','pointercancel'].forEach(ev=>$('#walkBtn').addEventListener(ev,()=>{if(holdTimer){clearInterval(holdTimer);holdTimer=null;}}));
+
+$('#menuBtn').onclick=()=>$('#menuModal').classList.add('on');
+$('#btnClose').onclick=()=>$('#menuModal').classList.remove('on');
+$('#btnSave').onclick=()=>{save();toast('💾 已存檔');};
+$('#btnReplay').onclick=()=>{$('#menuModal').classList.remove('on');runStory('intro');};
+$('#btnReset').onclick=()=>{if(confirm('確定要清除存檔重新開始嗎？')){_noSave=true;localStorage.removeItem(SAVE_KEY);location.reload();}};
+
+/* ---------- 離線進度 ---------- */
+function offlineProgress(){
+  const now=Date.now();const dt=(now-(S.lastTs||now))/1000;
+  if(dt>60){
+    const gain=Math.min(600,Math.floor(dt/6)); // 每6秒1步，上限600
+    if(gain>0){S.steps+=gain;S.totalSteps+=gain;
+      setTimeout(()=>toast('🌙 你離開時，庭院的夥伴幫你走了 '+gain+' 步！'),800);}
+  }
+}
+
+/* =========================================================
+   主迴圈
+========================================================= */
+function tick(){checkExpeditions();
+  if($('#panel-expedition').classList.contains('on')&&S.expeditions.length)renderExpedition();
+}
+function init(){
+  const had=load();
+  offlineProgress();
+  updateWeather();updateTop();
+  renderStage();renderGarden();renderFeed();renderExpedition();renderCodex();renderAchieve();
+  if(!had){
+    // 新玩家：送一個紅花苗 + 開場
+    S.seeds.push({type:'red'});renderStage();
+    setTimeout(()=>runStory('intro'),400);
+  }
+  setInterval(tick,1000);
+  setInterval(save,15000);
+}
+window.addEventListener('beforeunload',save);
+init();
+</script>
+</body>
+</html>

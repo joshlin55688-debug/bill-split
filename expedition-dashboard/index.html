@@ -103,6 +103,21 @@
   th{color:var(--ink3);font-weight:600}
   .rank1{color:var(--gold)} .rank2{color:#cdd6e4} .rank3{color:#cd9b6a}
   .code{background:#0a0e15;border:1px solid var(--line);border-radius:6px;padding:6px;font-size:10px;word-break:break-all;color:var(--cyan);max-height:60px;overflow:auto}
+  .upgradeGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .upBtn{display:flex;gap:8px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 9px;cursor:pointer;text-align:left;font-family:var(--mono);color:var(--ink);transition:.1s}
+  .upBtn:hover{border-color:var(--cyan);transform:translateY(-1px)}
+  .upBtn:active{transform:translateY(0)}
+  .upBtn.afford{border-color:#2a6f5a;box-shadow:0 0 10px #3ddc8422}
+  .upBtn.no{opacity:.55;cursor:not-allowed}
+  .upBtn.maxed{opacity:.5;cursor:default}
+  .upBtn .uic{font-size:20px;flex:none}
+  .upBtn .ugrow{flex:1;min-width:0}
+  .upBtn .nm{font-weight:800;font-size:12px;color:#fff}
+  .upBtn .lv{font-size:10px;color:var(--ink3)}
+  .upBtn .cost{font-weight:800;font-size:12px;color:var(--gold);flex:none}
+  .upBtn.afford .cost{color:#aef5cf}
+  .goalRow{margin-top:8px;background:#0e1420;border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:6px;padding:6px 10px;font-size:11px;color:var(--ink2)}
+  .goalRow b{color:var(--gold)}
   .toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:6px;z-index:50}
   .toast div{background:#0a0e15;border:1px solid var(--cyan);color:var(--ink);padding:8px 14px;border-radius:8px;font-size:12px;box-shadow:0 4px 20px #000a;animation:ti .3s, to .3s 2.7s forwards}
   @keyframes ti{from{transform:translateX(40px);opacity:0}}@keyframes to{to{opacity:0}}
@@ -155,6 +170,11 @@
             <button class="btn stop" id="btnRetreat" disabled>■ 撤退結算</button>
             <span class="muted" id="runState">狀態：待命</span>
           </div>
+        </div>
+        <div class="module" style="margin-top:12px">
+          <div class="mh"><span class="dot off"></span>公會升級 <small>花金幣立即變強 → 推更深</small></div>
+          <div id="upgrades" class="upgradeGrid"></div>
+          <div class="goalRow" id="goalRow"></div>
         </div>
       </div>
       <div>
@@ -334,6 +354,17 @@ const SUFFIX=[ // 百分比 / 特殊邏輯
   {id:'fortune',n:'之機運',type:'special',key:'fortune',base:0.20,d:'掉落 +X%'},
 ];
 const BASE_ITEM={weapon:'劍',armor:'鎧甲',trinket:'護符'};
+/* 公會升級（永久金幣消耗，立即生效）*/
+const UPGRADES=[
+  {id:'atk',  ic:'⚔', name:'武器庫', per:'隊伍 ATK +8%', base:35,  grow:1.15},
+  {id:'def',  ic:'🛡', name:'護甲庫', per:'隊伍 DEF +8%', base:35,  grow:1.15},
+  {id:'hp',   ic:'❤️', name:'醫療所', per:'隊伍 HP +8%',  base:30,  grow:1.14},
+  {id:'greed',ic:'💰', name:'金庫',   per:'金幣收益 +7%', base:55,  grow:1.18},
+  {id:'luk',  ic:'🍀', name:'幸運草', per:'掉落率 +10%',  base:80,  grow:1.2},
+  {id:'speed',ic:'⏩', name:'行軍鼓', per:'戰鬥速度 +6%', base:100, grow:1.22, max:25},
+];
+function upCost(u){return Math.floor(u.base*Math.pow(u.grow, S.up[u.id]||0));}
+function fightInterval(){return Math.max(300, Math.round(1200/(1+0.06*(S.up.speed||0))));}
 
 /* ---------- 存檔/狀態 ---------- */
 const KEY='expedition_dashboard_v1';
@@ -345,6 +376,7 @@ function fresh(){
     tactic:'balanced', customHp:25, agg:false, farm:false,
     roster:[], party:[], inv:[], nextId:1,
     carry:{gold:0,exp:0,drops:0,items:[]},
+    up:{atk:0,def:0,hp:0,greed:0,luk:0,speed:0}, milestone:0,
     tavern:[], refreshCount:0,
     log:[], bossLog:[],
     goldHist:[], hpCandles:[], lastGoldTotal:0, goldRateAcc:0, goldRateTimer:Date.now(),
@@ -386,9 +418,11 @@ function teamStats(){
   let hp=0,atk=0,def=0,luk=0,sp={lifesteal:0,pierce:0,greed:0,fortune:0};
   S.party.forEach(id=>{const a=S.roster.find(x=>x.id===id);if(!a)return;const st=advStats(a);
     hp+=st.hp;atk+=st.atk;def+=st.def;luk+=st.luk;for(const k in sp)sp[k]+=st.sp[k];});
+  // 公會升級加成
+  hp*=(1+0.08*(S.up.hp||0)); atk*=(1+0.08*(S.up.atk||0)); def*=(1+0.08*(S.up.def||0));
   // 戰術修正
   if(activeAgg()){atk*=1.25;def*=0.4;}
-  return {hp,atk:Math.round(atk),def:Math.round(def),luk,sp};
+  return {hp:Math.round(hp),atk:Math.round(atk),def:Math.round(def),luk,sp};
 }
 function teamPower(){const t=teamStats();return Math.round(t.hp*0.2 + t.atk*2.0 + t.def*1.5);}
 
@@ -419,15 +453,17 @@ function combatStep(silent){
   S.hpPct=clamp(S.hpPct-hpLoss,0,100);
   const ev={win,ep,tp,winRate,hpLoss,startHp,gold:0,drop:null,depth:S.depth};
   if(win){
-    let gold=Math.round(ep*0.5*(1+ts.sp.greed));
+    let gold=Math.round(ep*0.5*(1+ts.sp.greed)*(1+0.07*(S.up.greed||0)));
     S.carry.gold+=gold; S.goldRateAcc+=gold; ev.gold=gold;   // 攜帶中，撤退才入袋
     S.stats.kills++;
     S.carry.exp+=Math.round(ep*0.25);
     const baseDrop=0.06;
-    const dropRate=baseDrop*(1+ts.luk/100)*(1+ts.sp.fortune)*envMult(S.depth);
+    const dropRate=baseDrop*(1+ts.luk/100)*(1+ts.sp.fortune)*(1+0.10*(S.up.luk||0))*envMult(S.depth);
     if(Math.random()<dropRate){const it=rollItem(S.depth);S.carry.items.push(it);S.carry.drops++;ev.drop=it;}
     // 下潛 or farm
     if(!(S.farm && S.depth>=S.maxDepth)){S.depth++; if(S.depth>S.maxDepth)S.maxDepth=S.depth;}
+    // 深度里程碑（每 5 層，獎勵直接入袋，餵養升級循環）
+    while(S.maxDepth>=(S.milestone+1)*5){S.milestone++;const r=40+S.milestone*45;S.gold+=r;S.stone+=2;ev.milestone={d:S.milestone*5,gold:r};}
   }
   ev.endHp=S.hpPct;
   // 全滅 / 撤退判定
@@ -482,7 +518,7 @@ function gameTick(){
     if($('#v-dash').classList.contains('on'))drawGold();
   }
   // 戰鬥節奏 1.2s
-  if(S.running && now-lastFight>=1200){
+  if(S.running && now-lastFight>=fightInterval()){
     lastFight=now; doLiveFight();
   }
   updateCountdown();
@@ -496,6 +532,7 @@ function doLiveFight(){
     let line=`<span class="t">[D${ev.depth}]</span> 交戰 EP<span class="dim">${fmt(ev.ep)}</span> 勝率<span class="c">${Math.round(ev.winRate*100)}%</span> → <span class="g">勝 +${fmt(ev.gold)}G</span> <span class="r">-${ev.hpLoss.toFixed(1)}%HP</span>`;
     if(ev.drop){const t=TIERS[ev.drop.tier];line+=` <span class="y">★掉落 [${t.n}] ${itemName(ev.drop)}</span>`;}
     pushLog(line);
+    if(ev.milestone){pushLog(`<span class="y">🏁 里程碑！抵達第 ${ev.milestone.d} 層，獎勵 +${fmt(ev.milestone.gold)}G + 2 洗鍊石（直接入袋）</span>`);toast(`🏁 第 ${ev.milestone.d} 層里程碑 +${fmt(ev.milestone.gold)}G`);}
   }else{
     pushLog(`<span class="t">[D${ev.depth}]</span> 交戰 EP<span class="dim">${fmt(ev.ep)}</span> 勝率<span class="c">${Math.round(ev.winRate*100)}%</span> → <span class="r">敗退 -${ev.hpLoss.toFixed(1)}%HP</span>`);
   }
@@ -594,8 +631,27 @@ function refreshDash(){
     `<span><span class="k">勝率 </span><span class="v y">${wr}%</span></span>`+
     `<span><span class="k">💼攜帶 </span><span class="v g">${fmt(S.carry.gold)}G·${S.carry.items.length}件</span></span>`+
     `<span><span class="k">狀態 </span><span class="v ${activeAgg()?'r':'b'}">${activeAgg()?'激進型交戰':tacLabelText()}</span></span>`;
-  renderLog();
+  renderLog(); renderUpgrades();
 }
+function renderUpgrades(){
+  const el=$('#upgrades');if(!el)return;
+  el.innerHTML=UPGRADES.map(u=>{const lv=S.up[u.id]||0;const maxed=u.max&&lv>=u.max;const cost=upCost(u);
+    const afford=!maxed&&S.gold>=cost;
+    return `<button class="upBtn ${maxed?'maxed':afford?'afford':'no'}" onclick="buyUpgrade('${u.id}')">
+      <span class="uic">${u.ic}</span>
+      <span class="ugrow"><span class="nm">${u.name} Lv.${lv}${u.max?'/'+u.max:''}</span><br><span class="lv">${u.per}</span></span>
+      <span class="cost">${maxed?'MAX':fmt(cost)+'G'}</span></button>`;}).join('');
+  const goal=$('#goalRow');if(goal){const next=(S.milestone+1)*5;
+    goal.innerHTML=`🏁 下一里程碑：抵達 <b>第 ${next} 層</b>（目前最深 ${S.maxDepth}）→ 獎勵 +${fmt(40+(S.milestone+1)*45)}G + 2 洗鍊石`;}
+}
+window.buyUpgrade=id=>{const u=UPGRADES.find(x=>x.id===id);if(!u)return;const lv=S.up[id]||0;
+  if(u.max&&lv>=u.max){return;}
+  const cost=upCost(u);
+  if(S.gold<cost){toast('金幣不足，再賺一點！');return;}
+  S.gold-=cost;S.up[id]=lv+1;
+  toast(`${u.ic} ${u.name} → Lv.${S.up[id]}（${u.per}）`);
+  refreshDash();save();
+};
 function updateTop(){$('#cGold').textContent=fmt(S.gold);$('#cStone').textContent=fmt(S.stone);$('#cBlock').textContent=fmt(S.block);$('#cScroll').textContent=fmt(S.scroll);}
 
 /* charts */

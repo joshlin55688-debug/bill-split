@@ -42,6 +42,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-p", "4322", "expedition-dashboard"],
       "port": 4322
+    },
+    {
+      "name": "ceec-vocab",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "4323", "ceec-vocab"],
+      "port": 4323
     }
   ]
 }

@@ -48,6 +48,18 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["serve", "-p", "4323", "ceec-vocab"],
       "port": 4323
+    },
+    {
+      "name": "diving-trip",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "4326", "diving-trip"],
+      "port": 4326
+    },
+    {
+      "name": "trip-planner",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "4325", "trip-planner"],
+      "port": 4325
     }
   ]
 }

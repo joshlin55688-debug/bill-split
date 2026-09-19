@@ -570,11 +570,54 @@ let state = { billTitle: '', members: [], expenses: [], pool: {} };
 let currentSplitMode = 'equal';
 let selectedParticipants = new Set();
 
+/* ── UID generator ── */
+var _uidSeq = 0;
+function uid(prefix = '') {
+  _uidSeq = (_uidSeq + 1) % 0x1000000;
+  const seqPart = _uidSeq.toString(36).padStart(4, '0');
+  const timePart = Date.now().toString(36);
+  let randPart = '';
+  if (typeof crypto !== 'undefined') {
+    if (typeof crypto.randomUUID === 'function') {
+      try {
+        randPart = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+      } catch(_) {}
+    }
+    if (!randPart && typeof crypto.getRandomValues === 'function') {
+      try {
+        const buf = new Uint8Array(4);
+        crypto.getRandomValues(buf);
+        randPart = Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+      } catch(_) {}
+    }
+  }
+  if (!randPart || randPart.length < 8) {
+    randPart = (Math.random().toString(36).substring(2) + '00000000').slice(0, 8);
+  }
+  return (prefix ? prefix + '_' : '') + timePart + '_' + seqPart + '_' + randPart;
+}
+
+function generateRoomId() {
+  let randPart = '';
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    try {
+      const buf = new Uint8Array(4);
+      crypto.getRandomValues(buf);
+      randPart = Array.from(buf, b => b.toString(36)).join('').slice(0, 6);
+    } catch(_) {}
+  }
+  if (!randPart || randPart.length < 6) {
+    randPart = (Math.random().toString(36).substring(2) + '000000').slice(0, 6);
+  }
+  const timePart = Date.now().toString(36).slice(-4);
+  return 'bs_' + randPart + timePart;
+}
+
 // Collaborative Online State
 let activeRoomId = null;
 let activeRoomRef = null;
 let presenceRef = null;
-let myClientId = 'c_' + Math.random().toString(36).slice(2, 9);
+let myClientId = uid('c');
 let defaultName = '訪客_' + myClientId.slice(-4);
 let myName = localStorage.getItem('splitapp_my_name') || '';
 let db = null;
@@ -590,8 +633,8 @@ function getEffectiveName() {
 /* ── Utility Functions ── */
 function toArray(val) {
   if (!val) return [];
-  if (Array.isArray(val)) return val;
-  if (typeof val === 'object') return Object.values(val);
+  if (Array.isArray(val)) return val.filter(item => item !== null && item !== undefined);
+  if (typeof val === 'object') return Object.values(val).filter(item => item !== null && item !== undefined);
   return [];
 }
 
@@ -599,19 +642,25 @@ function sanitizeState(data) {
   if (!data || typeof data !== 'object') {
     return { billTitle: '', members: [], expenses: [], pool: {} };
   }
-  const members = toArray(data.members).map(m => ({
-    id: String(m.id || uid('m')),
-    name: String(m.name || '未命名')
-  }));
-  const expenses = toArray(data.expenses).map(e => ({
-    id: String(e.id || uid('e')),
-    name: String(e.name || '費用'),
-    amount: Number(e.amount) || 0,
-    payerId: String(e.payerId || ''),
-    splitMode: e.splitMode === 'custom' ? 'custom' : 'equal',
-    participantIds: toArray(e.participantIds).map(String),
-    customSplits: (e.customSplits && typeof e.customSplits === 'object') ? e.customSplits : {}
-  }));
+  const members = toArray(data.members).map(m => {
+    if (typeof m === 'string') return { id: uid('m'), name: m };
+    return {
+      id: String((m && m.id) || uid('m')),
+      name: String((m && m.name) || '未命名')
+    };
+  });
+  const expenses = toArray(data.expenses).map(e => {
+    if (!e || typeof e !== 'object') return null;
+    return {
+      id: String(e.id || uid('e')),
+      name: String(e.name || '費用'),
+      amount: Number(e.amount) || 0,
+      payerId: String(e.payerId || ''),
+      splitMode: e.splitMode === 'custom' ? 'custom' : 'equal',
+      participantIds: toArray(e.participantIds).map(String),
+      customSplits: (e.customSplits && typeof e.customSplits === 'object') ? e.customSplits : {}
+    };
+  }).filter(Boolean);
   const pool = (data.pool && typeof data.pool === 'object') ? data.pool : {};
   return {
     billTitle: String(data.billTitle || ''),
@@ -634,30 +683,6 @@ function b64decode(s) {
     while (s.length % 4) s += '=';
     return JSON.parse(decodeURIComponent(escape(atob(s))));
   } catch(e) { return null; }
-}
-
-/* ── UID generator ── */
-let _uidSeq = 0;
-function uid(prefix = '') {
-  _uidSeq = (_uidSeq + 1) % 0x1000000;
-  const seqPart = _uidSeq.toString(36).padStart(4, '0');
-  const timePart = Date.now().toString(36);
-  let randPart = '';
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    try {
-      randPart = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
-    } catch(_) {}
-  }
-  if (!randPart) {
-    randPart = Math.random().toString(36).slice(2, 10);
-  }
-  return (prefix ? prefix + '_' : '') + timePart + '_' + seqPart + '_' + randPart;
-}
-
-function generateRoomId() {
-  const randPart = Math.random().toString(36).substring(2, 8).padEnd(6, '0');
-  const timePart = Date.now().toString(36).slice(-4);
-  return 'bs_' + randPart + timePart;
 }
 
 /* ── Storage ── */
@@ -1109,13 +1134,19 @@ function renderExpenses() {
 
 /* ── Settlement ── */
 function computeBalances(s = state) {
+  if (!s || typeof s !== 'object') s = {};
+  const members = toArray(s.members);
+  const expenses = toArray(s.expenses);
+  const pool = (s.pool && typeof s.pool === 'object') ? s.pool : {};
   const bal = {}, expBal = {}, poolBal = {};
-  s.members.forEach(m => {
+  members.forEach(m => {
+    if (!m) return;
     const id = String(m.id);
     bal[id] = 0; expBal[id] = 0; poolBal[id] = 0;
   });
 
-  s.expenses.forEach(e => {
+  expenses.forEach(e => {
+    if (!e) return;
     const payerId = String(e.payerId);
     if (bal[payerId] === undefined) return; // Skip orphaned expense if payer deleted
 
@@ -1142,13 +1173,14 @@ function computeBalances(s = state) {
     }
   });
 
-  const poolTotal = s.members.reduce((sum, m) => sum + (s.pool[m.id] || 0), 0);
-  const n = s.members.length;
+  const poolTotal = members.reduce((sum, m) => sum + (pool[m && m.id] || 0), 0);
+  const n = members.length;
   if (poolTotal > 0 && n > 0) {
     const per = poolTotal / n;
-    s.members.forEach(m => {
+    members.forEach(m => {
+      if (!m) return;
       const id = String(m.id);
-      const net = (s.pool[m.id] || 0) - per;
+      const net = (pool[m.id] || 0) - per;
       bal[id] += net;
       poolBal[id] += net;
     });
@@ -1365,7 +1397,9 @@ function joinRoom(roomId, uploadCurrent = false) {
   if (!roomId) return;
 
   // Validate roomId format: 6..64 chars, no .#$[]/
-  roomId = roomId.trim().replace(/^[?#]/, '').replace(/^room=/, '');
+  const m = String(roomId).match(/[?&]room=([^&#\s]+)/);
+  if (m) roomId = decodeURIComponent(m[1]);
+  roomId = String(roomId).trim().replace(/^[?#]/, '').replace(/^room=/, '');
   if (roomId.length < 6 || roomId.length > 64 || /[.#$\[\]\/]/.test(roomId)) {
     toast('房號格式不正確（長度需為 6..64 字元且不含特殊符號）');
     return;
@@ -1625,23 +1659,25 @@ function handleJoinInput() {
   let val = document.getElementById('join-room-input').value.trim();
   if (!val) { toast('請輸入房號或連結'); return; }
 
-  // Extract ?room= if full URL or query string pasted
-  try {
-    if (val.includes('http') || val.includes('?') || val.includes('&') || val.includes('room=')) {
-      const parsedUrl = new URL(val.startsWith('http') ? val : 'https://dummy.test/' + (val.startsWith('?') ? val : '?' + val));
-      const r = parsedUrl.searchParams.get('room');
-      if (r) val = r.trim();
-      const cfg = parsedUrl.searchParams.get('cfg');
-      if (cfg) {
-        const decoded = b64decode(cfg);
-        if (decoded && decoded.databaseURL) {
-          localStorage.setItem('splitapp_fb_config', JSON.stringify(decoded));
-        }
+  // Extract ?cfg= if present
+  const cfgMatch = val.match(/[?&]cfg=([^&#\s]+)/);
+  if (cfgMatch) {
+    try {
+      const decoded = b64decode(decodeURIComponent(cfgMatch[1]));
+      if (decoded && decoded.databaseURL) {
+        localStorage.setItem('splitapp_fb_config', JSON.stringify(decoded));
       }
-    }
-  } catch(_) {}
+    } catch(_) {}
+  }
 
-  val = val.replace(/^[?#]/, '').replace(/^room=/, '').trim();
+  // Extract ?room= if present in URL/query, or clean raw room id
+  const roomMatch = val.match(/[?&]room=([^&#\s]+)/);
+  if (roomMatch) {
+    val = decodeURIComponent(roomMatch[1]);
+  } else {
+    val = val.replace(/^[?#]/, '').replace(/^room=/, '');
+  }
+  val = val.trim();
 
   if (val.length < 6 || val.length > 64) {
     toast('房號長度需在 6 至 64 個字元之間');

@@ -48,6 +48,7 @@
     .collab-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
     .collab-dot.online { background: #2e7d32; box-shadow: 0 0 6px #4caf50; animation: pulse-dot 2s infinite; }
     .collab-dot.connecting { background: #f57c00; animation: blink 1s infinite; }
+    .collab-dot.error { background: #d32f2f; box-shadow: 0 0 6px #f44336; }
     .collab-dot.local { background: #9e9e9e; }
     @keyframes pulse-dot {
       0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
@@ -249,7 +250,7 @@
       padding: 14px; background: #fafafa; border-radius: 10px; border: 1.5px dashed #ccc;
       margin: 12px 0; min-height: 170px;
     }
-    .qr-container canvas, .qr-container img { max-width: 150px; max-height: 150px; border-radius: 6px; }
+    .qr-container canvas, .qr-container img { max-width: 150px; max-height: 150px; border-radius: 6px; display: block; }
 
     .copy-box { display: flex; gap: 8px; margin: 10px 0; }
     .copy-box input { flex: 1; font-size: 0.84rem; padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 8px; background: #f9f9f9; }
@@ -277,7 +278,7 @@
     <h1>💰 分帳程式</h1>
     <div class="sub">輕鬆計算、一鍵結算 · 線上共同編輯</div>
   </div>
-  <button class="header-user-btn" onclick="promptMyName()" title="點擊修改你的暱稱">
+  <button class="header-user-btn" onclick="openCollabModal('settings')" title="點擊修改你的暱稱">
     👤 <span id="header-user-name">訪客</span>
   </button>
 </header>
@@ -335,7 +336,7 @@
       <li>「公費池」頁輸入各人繳的公費，系統自動平分。</li>
       <li>「費用」頁支援 <strong>平均分攤</strong> 或 <strong>自訂每人金額</strong>。</li>
       <li>「結算」頁整合所有帳目，給出最少付款方案。</li>
-      <li>離線或未進入房間時，資料自動保存在本機瀏覽器。</li>
+      <li>離線或未進入房間時，資料自動獨立保存在本機離線儲存空間，不與雲端共編衝突。</li>
     </ul>
   </div>
   <button class="btn btn-danger btn-full" onclick="clearAll()" style="margin-top:4px">🗑 清除所有資料（重新開始）</button>
@@ -559,6 +560,12 @@ const DEFAULT_FB_CONFIG = {
   appId: "1:1055802193601:web:ab67764f28e381f2c34640"
 };
 
+const LOCAL_STORAGE_KEY = 'splitapp_local_v4';
+
+function getRoomStorageKey(roomId) {
+  return 'splitapp_room_' + roomId;
+}
+
 let state = { billTitle: '', members: [], expenses: [], pool: {} };
 let currentSplitMode = 'equal';
 let selectedParticipants = new Set();
@@ -568,10 +575,51 @@ let activeRoomId = null;
 let activeRoomRef = null;
 let presenceRef = null;
 let myClientId = 'c_' + Math.random().toString(36).slice(2, 9);
+let defaultName = '訪客_' + myClientId.slice(-4);
 let myName = localStorage.getItem('splitapp_my_name') || '';
 let db = null;
 let isRemoteUpdating = false;
 let roomListeners = [];
+let saveDebounceTimer = null;
+let lastRemoteToastTime = 0;
+
+function getEffectiveName() {
+  return myName || defaultName;
+}
+
+/* ── Utility Functions ── */
+function toArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'object') return Object.values(val);
+  return [];
+}
+
+function sanitizeState(data) {
+  if (!data || typeof data !== 'object') {
+    return { billTitle: '', members: [], expenses: [], pool: {} };
+  }
+  const members = toArray(data.members).map(m => ({
+    id: String(m.id || uid('m')),
+    name: String(m.name || '未命名')
+  }));
+  const expenses = toArray(data.expenses).map(e => ({
+    id: String(e.id || uid('e')),
+    name: String(e.name || '費用'),
+    amount: Number(e.amount) || 0,
+    payerId: String(e.payerId || ''),
+    splitMode: e.splitMode === 'custom' ? 'custom' : 'equal',
+    participantIds: toArray(e.participantIds).map(String),
+    customSplits: (e.customSplits && typeof e.customSplits === 'object') ? e.customSplits : {}
+  }));
+  const pool = (data.pool && typeof data.pool === 'object') ? data.pool : {};
+  return {
+    billTitle: String(data.billTitle || ''),
+    members,
+    expenses,
+    pool
+  };
+}
 
 /* ── Base64 URL-safe encoding ── */
 function b64encode(obj) {
@@ -593,12 +641,64 @@ function uid(prefix = '') {
   return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 }
 
+function generateRoomId() {
+  const randPart = Math.random().toString(36).substring(2, 8).padEnd(6, '0');
+  const timePart = Date.now().toString(36).slice(-4);
+  return 'bs_' + randPart + timePart;
+}
+
 /* ── Storage ── */
-function save(broadcast = true) {
-  // Save local cache
+function saveLocalDraft() {
   try {
-    localStorage.setItem('splitapp_v4', JSON.stringify({ state, nextMemberId: 1, nextExpenseId: 1 }));
+    if (activeRoomId) {
+      localStorage.setItem(getRoomStorageKey(activeRoomId), JSON.stringify({ state }));
+    } else {
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({ state, nextMemberId: 1, nextExpenseId: 1 }));
+      localStorage.setItem('splitapp_v4', JSON.stringify({ state, nextMemberId: 1, nextExpenseId: 1 }));
+    }
   } catch(_) {}
+}
+
+function saveLocalRoomCache() {
+  try {
+    if (activeRoomId) {
+      localStorage.setItem(getRoomStorageKey(activeRoomId), JSON.stringify({ state }));
+    }
+  } catch(_) {}
+}
+
+function loadLocalDraft() {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY) || localStorage.getItem('splitapp_v4') || localStorage.getItem('splitapp_v3');
+    if (raw) {
+      const d = JSON.parse(raw);
+      state = sanitizeState(d.state || d);
+    } else {
+      state = { billTitle: '', members: [], expenses: [], pool: {} };
+    }
+  } catch(_) {
+    state = { billTitle: '', members: [], expenses: [], pool: {} };
+  }
+}
+
+function loadRoomCache(roomId) {
+  try {
+    const raw = localStorage.getItem(getRoomStorageKey(roomId));
+    if (raw) {
+      const d = JSON.parse(raw);
+      return sanitizeState(d.state || d);
+    }
+  } catch(_) {}
+  return null;
+}
+
+function save(broadcast = true) {
+  // Always update local cache
+  if (activeRoomId) {
+    saveLocalRoomCache();
+  } else {
+    saveLocalDraft();
+  }
 
   // If in room and connected, broadcast to Firebase
   if (activeRoomId && db && broadcast && !isRemoteUpdating) {
@@ -609,33 +709,37 @@ function save(broadcast = true) {
         expenses: state.expenses || [],
         pool: state.pool || {},
         updatedAt: firebase.database.ServerValue.TIMESTAMP,
-        updatedBy: myName || '訪客'
+        updatedBy: getEffectiveName()
       };
       activeRoomRef.child('data').set(payload).catch(err => {
-        console.warn('Firebase RTDB save warning:', err);
+        console.error('Firebase RTDB save error:', err);
+        setCollabStatus('error', '同步失敗');
+        toast('⚠️ 雲端同步失敗：' + (err.message || '請確認網路與房間權限'));
       });
     } catch(e) {
-      console.warn('Sync error:', e);
+      console.error('Sync error:', e);
     }
   }
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem('splitapp_v4');
-    if (!raw) {
-      const old = localStorage.getItem('splitapp_v3');
-      if (old) {
-        const d = JSON.parse(old);
-        state = d.state || state;
-        if (!state.pool) state.pool = {};
-      }
-      return;
-    }
-    const d = JSON.parse(raw);
-    state = d.state || state;
-    if (!state.pool) state.pool = {};
-  } catch(_) {}
+function debouncedSave() {
+  if (activeRoomId) {
+    saveLocalRoomCache();
+  } else {
+    saveLocalDraft();
+  }
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(() => {
+    save(true);
+  }, 350);
+}
+
+function notifyRemoteUpdate(updatedBy) {
+  const now = Date.now();
+  if (now - lastRemoteToastTime > 3500) {
+    lastRemoteToastTime = now;
+    toast(`🔄 已同步最新變更（由 ${updatedBy || '好友'} 更新）`);
+  }
 }
 
 /* ── UI Helpers ── */
@@ -710,6 +814,8 @@ function addMember() {
   input.value = '';
   save(true);
   renderMembers();
+  renderExpenseForm();
+  renderPoolTab();
   toast('已新增：' + name);
 }
 
@@ -717,7 +823,7 @@ function removeMember(id) {
   const strId = String(id);
   const hasExp = state.expenses.some(e =>
     String(e.payerId) === strId ||
-    (e.participantIds || []).map(String).includes(strId) ||
+    toArray(e.participantIds).map(String).includes(strId) ||
     (e.customSplits && e.customSplits[strId] !== undefined)
   );
   if (hasExp && !confirm('此成員有相關費用記錄，確定刪除嗎？')) return;
@@ -730,11 +836,15 @@ function removeMember(id) {
       e.amount = Object.values(e.customSplits).reduce((s, v) => s + v, 0);
       return e.amount > 0;
     }
-    e.participantIds = (e.participantIds || []).filter(p => String(p) !== strId);
+    e.participantIds = toArray(e.participantIds).filter(p => String(p) !== strId);
     return e.participantIds.length > 0;
   });
   save(true);
   renderMembers();
+  renderExpenseForm();
+  renderExpenses();
+  renderPoolTab();
+  renderSettle();
   toast('已移除成員');
 }
 
@@ -749,13 +859,15 @@ function renderMembers() {
   state.members.forEach(m => {
     const tag = document.createElement('div');
     tag.className = 'member-tag';
-    tag.innerHTML = `${avatar(m, 24)}${escHtml(m.name)}<button class="del-btn" onclick="removeMember('${m.id}')">✕</button>`;
+    tag.innerHTML = `${avatar(m, 24)}${escHtml(m.name)}<button class="del-btn" title="移除成員">✕</button>`;
+    tag.querySelector('.del-btn').addEventListener('click', () => removeMember(m.id));
     list.appendChild(tag);
   });
 }
+
 document.getElementById('bill-title').addEventListener('input', function() {
   state.billTitle = this.value;
-  save(true);
+  debouncedSave();
 });
 
 /* ── Pool ── */
@@ -772,7 +884,10 @@ function renderPoolTab() {
     const val = state.pool[m.id] || 0;
     const row = document.createElement('div');
     row.className = 'pool-member-row';
-    row.innerHTML = `<div class="pool-member-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" value="${val > 0 ? val : ''}" id="pool-input-${m.id}" oninput="updatePool('${m.id}',this.value)" /><span class="pool-share-label" id="pool-share-${m.id}"></span>`;
+    row.innerHTML = `<div class="pool-member-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" value="${val > 0 ? val : ''}" id="pool-input-${m.id}" /><span class="pool-share-label" id="pool-share-${m.id}"></span>`;
+    row.querySelector('input').addEventListener('input', function() {
+      updatePool(m.id, this.value);
+    });
     rows.appendChild(row);
   });
   updatePoolSummary();
@@ -780,7 +895,7 @@ function renderPoolTab() {
 
 function updatePool(memberId, rawVal) {
   state.pool[memberId] = parseFloat(rawVal) || 0;
-  save(true);
+  debouncedSave();
   updatePoolSummary();
 }
 
@@ -824,7 +939,8 @@ function renderCustomSplitRows() {
   state.members.forEach(m => {
     const row = document.createElement('div');
     row.className = 'custom-split-row';
-    row.innerHTML = `<div class="custom-split-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" id="custom-input-${m.id}" oninput="updateCustomTotal()" />`;
+    row.innerHTML = `<div class="custom-split-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" id="custom-input-${m.id}" />`;
+    row.querySelector('input').addEventListener('input', updateCustomTotal);
     container.appendChild(row);
   });
   updateCustomTotal();
@@ -921,6 +1037,7 @@ function addExpense() {
   save(true);
   renderExpenses();
   renderExpenseForm();
+  renderSettle();
   toast(`已新增：${name}`);
 }
 
@@ -929,6 +1046,8 @@ function removeExpense(id) {
   state.expenses = state.expenses.filter(e => String(e.id) !== strId);
   save(true);
   renderExpenses();
+  renderSettle();
+  toast('已刪除費用');
 }
 
 function renderExpenses() {
@@ -951,8 +1070,9 @@ function renderExpenses() {
         return m ? `${escHtml(m.name)} $${fmt(amt)}` : '';
       }).filter(Boolean).join('、');
     } else {
-      const parts = (e.participantIds || []).map(pid => state.members.find(m => String(m.id) === String(pid))?.name).filter(Boolean);
-      const share = (e.participantIds && e.participantIds.length) ? e.amount / e.participantIds.length : e.amount;
+      const pIds = toArray(e.participantIds);
+      const parts = pIds.map(pid => state.members.find(m => String(m.id) === String(pid))?.name).filter(Boolean);
+      const share = pIds.length ? e.amount / pIds.length : e.amount;
       partsText = parts.map(escHtml).join('、') + `（每人 $${fmt(share)}）`;
     }
     const item = document.createElement('div');
@@ -966,9 +1086,10 @@ function renderExpenses() {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
           <div class="expense-amount">$${fmt(e.amount)}</div>
-          <button class="btn btn-danger btn-sm" onclick="removeExpense('${e.id}')">刪除</button>
+          <button class="btn btn-danger btn-sm" title="刪除費用">刪除</button>
         </div>
       </div>`;
+    item.querySelector('.btn-danger').addEventListener('click', () => removeExpense(e.id));
     list.appendChild(item);
   });
 }
@@ -983,18 +1104,28 @@ function computeBalances(s = state) {
 
   s.expenses.forEach(e => {
     const payerId = String(e.payerId);
+    if (bal[payerId] === undefined) return; // Skip orphaned expense if payer deleted
+
     if (e.splitMode === 'custom') {
-      if (bal[payerId] !== undefined) { bal[payerId] += e.amount; expBal[payerId] += e.amount; }
+      bal[payerId] += e.amount;
+      expBal[payerId] += e.amount;
       Object.entries(e.customSplits || {}).forEach(([id, amt]) => {
         const mid = String(id);
-        if (bal[mid] !== undefined) { bal[mid] -= amt; expBal[mid] -= amt; }
+        if (bal[mid] !== undefined) {
+          bal[mid] -= amt;
+          expBal[mid] -= amt;
+        }
       });
     } else {
-      const parts = (e.participantIds || []).map(String).filter(id => bal[id] !== undefined);
+      const parts = toArray(e.participantIds).map(String).filter(id => bal[id] !== undefined);
       if (!parts.length) return;
       const share = e.amount / parts.length;
-      if (bal[payerId] !== undefined) { bal[payerId] += e.amount; expBal[payerId] += e.amount; }
-      parts.forEach(id => { bal[id] -= share; expBal[id] -= share; });
+      bal[payerId] += e.amount;
+      expBal[payerId] += e.amount;
+      parts.forEach(id => {
+        bal[id] -= share;
+        expBal[id] -= share;
+      });
     }
   });
 
@@ -1055,10 +1186,10 @@ function renderSettle() {
     const pb = Math.round((poolBal[id] || 0) * 100) / 100;
     const cls = b > 0.005 ? 'creditor' : b < -0.005 ? 'debtor' : 'zero';
     const label = b > 0.005 ? '應收' : b < -0.005 ? '應付' : '已結清';
-    const sign = b > 0 ? '+' : '';
+    const sign = b > 0.005 ? '+' : (b < -0.005 ? '-' : '');
     let breakdown = '';
     if (state.expenses.length > 0 && poolTotal > 0) {
-      breakdown = `<div class="s-breakdown">費用：${eb > 0 ? '+' : ''}$${fmt(Math.abs(eb))}<br>公費池：${pb > 0 ? '+' : ''}$${fmt(Math.abs(pb))}</div>`;
+      breakdown = `<div class="s-breakdown">費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費池：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
     }
     const el = document.createElement('div');
     el.className = `settle-person ${cls}`;
@@ -1096,7 +1227,10 @@ function copyResult() {
   text += `\n各人結餘：\n`;
   state.members.forEach(m => {
     const b = Math.round((bal[m.id] || 0) * 100) / 100;
-    text += `  ${m.name}：${b >= 0 ? '+' : ''}$${fmt(Math.abs(b))}\n`;
+    let statusText = '已結清 $0';
+    if (b > 0.005) statusText = `應收 +$${fmt(b)}`;
+    else if (b < -0.005) statusText = `應付 -$${fmt(Math.abs(b))}`;
+    text += `  ${m.name}：${statusText}\n`;
   });
   text += `\n轉帳清單：\n`;
   if (!txs.length) {
@@ -1113,7 +1247,7 @@ function copyResult() {
 
 function clearAll() {
   const msg = activeRoomId
-    ? '確定要清除線上房間的所有資料嗎？所有連線中的成員資料都會被清空。'
+    ? '確定要清除線上房間的所有資料嗎？所有連線中的成員畫面都會被清空。'
     : '確定要清除所有資料嗎？此操作無法復原。';
   if (!confirm(msg)) return;
   state = { billTitle: '', members: [], expenses: [], pool: {} };
@@ -1122,6 +1256,8 @@ function clearAll() {
   save(true);
   renderMembers();
   renderExpenses();
+  renderPoolTab();
+  renderSettle();
   toast('已清除所有資料');
 }
 
@@ -1190,14 +1326,17 @@ function updateCollabBarUI() {
 }
 
 function updateUrlRoom(roomId) {
-  const url = new URL(window.location);
-  if (roomId) {
-    url.searchParams.set('room', roomId);
-  } else {
-    url.searchParams.delete('room');
-    url.searchParams.delete('cfg');
-  }
-  window.history.replaceState({}, '', url);
+  try {
+    const urlStr = window.location.href || (window.location.origin + window.location.pathname + (window.location.search || ''));
+    const url = new URL(urlStr);
+    if (roomId) {
+      url.searchParams.set('room', roomId);
+    } else {
+      url.searchParams.delete('room');
+      url.searchParams.delete('cfg');
+    }
+    window.history.replaceState({}, '', url);
+  } catch(_) {}
 }
 
 function getShareUrl() {
@@ -1212,6 +1351,18 @@ function joinRoom(roomId, uploadCurrent = false) {
   if (!initFirebase()) return;
   if (!roomId) return;
 
+  // Validate roomId format: 6..64 chars, no .#$[]/
+  roomId = roomId.trim().replace(/^[?#]/, '').replace(/^room=/, '');
+  if (roomId.length < 6 || roomId.length > 64 || /[.#$\[\]\/]/.test(roomId)) {
+    toast('房號格式不正確（長度需為 6..64 字元且不含特殊符號）');
+    return;
+  }
+
+  // Preserve local draft before entering room
+  if (!activeRoomId) {
+    saveLocalDraft();
+  }
+
   // Cleanup prior listeners
   cleanupRoomListeners();
 
@@ -1220,7 +1371,21 @@ function joinRoom(roomId, uploadCurrent = false) {
   updateUrlRoom(roomId);
   updateCollabBarUI();
 
-  // Presence & connection listener
+  // If not uploading current, try loading from room cache while connecting
+  if (!uploadCurrent) {
+    const cached = loadRoomCache(roomId);
+    if (cached) {
+      state = cached;
+      document.getElementById('bill-title').value = state.billTitle || '';
+      renderMembers();
+      renderExpenses();
+      renderExpenseForm();
+      renderPoolTab();
+      renderSettle();
+    }
+  }
+
+  // Setup presence
   setupPresence();
 
   // Listen to remote data changes
@@ -1228,13 +1393,29 @@ function joinRoom(roomId, uploadCurrent = false) {
   const dataHandler = dataRef.on('value', snap => {
     const val = snap.val();
     if (!val) {
-      if (uploadCurrent || state.members.length > 0) {
+      if (uploadCurrent) {
         save(true);
         toast(`🎉 房間 ${roomId} 已建立並同步帳單！`);
+      } else {
+        // Room not yet written on server; keep clean empty state rather than leaking local draft
+        if (!loadRoomCache(roomId)) {
+          state = { billTitle: '', members: [], expenses: [], pool: {} };
+          document.getElementById('bill-title').value = '';
+          renderMembers();
+          renderExpenses();
+          renderExpenseForm();
+          renderPoolTab();
+          renderSettle();
+        }
+        toast(`已連線至房間：${roomId}`);
       }
     } else {
       applyRemoteData(val, val.updatedBy);
     }
+  }, err => {
+    console.error('Firebase data listener error:', err);
+    setCollabStatus('error', '連線失敗');
+    toast('⚠️ 無法同步房間：' + (err.message || '權限或網路錯誤'));
   });
   roomListeners.push(() => dataRef.off('value', dataHandler));
 
@@ -1244,6 +1425,8 @@ function joinRoom(roomId, uploadCurrent = false) {
 function applyRemoteData(data, updatedBy) {
   if (!data) return;
 
+  const sanitized = sanitizeState(data);
+
   // Check if actually changed
   const curJson = JSON.stringify({
     t: state.billTitle || '',
@@ -1252,26 +1435,26 @@ function applyRemoteData(data, updatedBy) {
     p: state.pool || {}
   });
   const newJson = JSON.stringify({
-    t: data.billTitle || '',
-    m: data.members || [],
-    e: data.expenses || [],
-    p: data.pool || {}
+    t: sanitized.billTitle || '',
+    m: sanitized.members || [],
+    e: sanitized.expenses || [],
+    p: sanitized.pool || {}
   });
   if (curJson === newJson) return;
 
   isRemoteUpdating = true;
   try {
-    state.billTitle = data.billTitle || '';
-    state.members = Array.isArray(data.members) ? data.members : [];
-    state.expenses = Array.isArray(data.expenses) ? data.expenses : [];
-    state.pool = data.pool || {};
+    state.billTitle = sanitized.billTitle;
+    state.members = sanitized.members;
+    state.expenses = sanitized.expenses;
+    state.pool = sanitized.pool;
 
-    // Cache locally
-    save(false);
+    // Cache locally under room key
+    saveLocalRoomCache();
 
     // Update Title if not actively being typed
     const titleInput = document.getElementById('bill-title');
-    if (document.activeElement !== titleInput) {
+    if (document.activeElement !== titleInput && titleInput) {
       titleInput.value = state.billTitle || '';
     }
 
@@ -1279,21 +1462,48 @@ function applyRemoteData(data, updatedBy) {
     renderExpenses();
 
     // Preserve active form input focus
-    const formInputIds = ['exp-name', 'exp-amount', 'exp-payer'];
-    const isTypingExpense = formInputIds.includes(document.activeElement?.id) || document.activeElement?.id?.startsWith('custom-input-');
+    const activeEl = document.activeElement;
+    const isTypingExpense = activeEl && (
+      ['exp-name', 'exp-amount', 'exp-payer'].includes(activeEl.id) ||
+      activeEl.id.startsWith('custom-input-')
+    );
     if (!isTypingExpense) {
       renderExpenseForm();
+    } else {
+      const payerSel = document.getElementById('exp-payer');
+      if (payerSel) {
+        const curVal = payerSel.value;
+        payerSel.innerHTML = state.members.length
+          ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
+          : '<option value="">（請先新增成員）</option>';
+        if (curVal && state.members.some(m => String(m.id) === String(curVal))) {
+          payerSel.value = curVal;
+        }
+      }
     }
 
-    const poolInputs = document.activeElement?.id?.startsWith('pool-input-');
-    if (!poolInputs) {
+    const activePoolId = activeEl && activeEl.id && activeEl.id.startsWith('pool-input-') ? activeEl.id : null;
+    if (!activePoolId) {
       renderPoolTab();
+    } else {
+      // Update other pool inputs without interrupting the active input
+      state.members.forEach(m => {
+        const inputId = 'pool-input-' + m.id;
+        if (inputId !== activePoolId) {
+          const el = document.getElementById(inputId);
+          if (el) {
+            const v = state.pool[m.id] || 0;
+            el.value = v > 0 ? v : '';
+          }
+        }
+      });
+      updatePoolSummary();
     }
 
     renderSettle();
 
-    if (updatedBy && updatedBy !== myName) {
-      toast(`🔄 已同步最新變更（由 ${updatedBy} 更新）`);
+    if (updatedBy && updatedBy !== getEffectiveName()) {
+      notifyRemoteUpdate(updatedBy);
     }
   } finally {
     isRemoteUpdating = false;
@@ -1311,7 +1521,7 @@ function setupPresence() {
       setCollabStatus('online', '線上共編中');
       presenceRef.onDisconnect().remove();
       presenceRef.set({
-        name: myName || '訪客',
+        name: getEffectiveName(),
         joinedAt: firebase.database.ServerValue.TIMESTAMP
       });
     } else {
@@ -1374,24 +1584,26 @@ function leaveRoom(confirmPrompt = true) {
   updateUrlRoom(null);
   updateCollabBarUI();
 
-  // Reload local copy
-  load();
+  // Cleanly restore local draft
+  loadLocalDraft();
   document.getElementById('bill-title').value = state.billTitle || '';
   renderMembers();
   renderExpenses();
+  renderExpenseForm();
+  renderPoolTab();
+  renderSettle();
   toast('已切換為本機離線模式');
   closeCollabModal();
 }
 
 function createNewRoom() {
   const keepData = document.getElementById('check-keep-local-data').checked;
+  const newRoomId = generateRoomId();
   if (!keepData) {
     state = { billTitle: '', members: [], expenses: [], pool: {} };
     document.getElementById('bill-title').value = '';
   }
-  // Generate random room code matching security rule (length 6..64)
-  const newRoomId = 'bs_' + Math.random().toString(36).slice(2, 8);
-  joinRoom(newRoomId, keepData);
+  joinRoom(newRoomId, true);
   closeCollabModal();
   setTimeout(() => openShareModal(), 300);
 }
@@ -1400,13 +1612,13 @@ function handleJoinInput() {
   let val = document.getElementById('join-room-input').value.trim();
   if (!val) { toast('請輸入房號或連結'); return; }
 
-  // Extract ?room= if full URL pasted
+  // Extract ?room= if full URL or query string pasted
   try {
-    if (val.includes('http') || val.includes('?')) {
-      const url = new URL(val, window.location.origin);
-      const r = url.searchParams.get('room');
-      if (r) val = r;
-      const cfg = url.searchParams.get('cfg');
+    if (val.includes('http') || val.includes('?') || val.includes('&') || val.includes('room=')) {
+      const parsedUrl = new URL(val.startsWith('http') ? val : 'https://dummy.test/' + (val.startsWith('?') ? val : '?' + val));
+      const r = parsedUrl.searchParams.get('room');
+      if (r) val = r.trim();
+      const cfg = parsedUrl.searchParams.get('cfg');
       if (cfg) {
         const decoded = b64decode(cfg);
         if (decoded && decoded.databaseURL) {
@@ -1416,16 +1628,28 @@ function handleJoinInput() {
     }
   } catch(_) {}
 
-  if (val.length < 4) { toast('房號格式不正確'); return; }
+  val = val.replace(/^[?#]/, '').replace(/^room=/, '').trim();
+
+  if (val.length < 6 || val.length > 64) {
+    toast('房號長度需在 6 至 64 個字元之間');
+    return;
+  }
+  if (/[.#$\[\]\/]/.test(val)) {
+    toast('房號不可包含 . # $ [ ] / 等特殊符號');
+    return;
+  }
+
   joinRoom(val, false);
   closeCollabModal();
 }
 
-/* ── QR Code Rendering ── */
+/* ── QR Code Rendering with Fallback ── */
 function renderQrCode(url) {
   const box = document.getElementById('qr-code-box');
   if (!box) return;
   box.innerHTML = '';
+  
+  let success = false;
   if (typeof QRCode !== 'undefined') {
     try {
       new QRCode(box, {
@@ -1436,12 +1660,16 @@ function renderQrCode(url) {
         colorLight: '#ffffff',
         correctLevel: QRCode.CorrectLevel.M
       });
-      return;
+      success = true;
     } catch(e) {
-      console.warn('QR Code generation error:', e);
+      console.warn('QRCode.js error, falling back:', e);
     }
   }
-  box.innerHTML = '<div style="font-size:0.75rem;color:#888;padding:20px;text-align:center">📱 請直接複製上方邀請連結發送給好友</div>';
+
+  if (!success) {
+    const fallbackImg = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&color=2e7d32&data=' + encodeURIComponent(url);
+    box.innerHTML = `<img src="${fallbackImg}" alt="QR Code" width="150" height="150" style="border-radius:6px;display:block;margin:0 auto" onerror="this.outerHTML='<div style=\\'font-size:0.75rem;color:#888;padding:20px;text-align:center\\'>📱 請直接複製上方邀請連結發送給好友</div>'" />`;
+  }
 }
 
 function copyShareLink() {
@@ -1489,23 +1717,9 @@ function switchModalTab(tab) {
   }
 
   if (tab === 'settings') {
-    document.getElementById('my-name-input').value = myName;
+    document.getElementById('my-name-input').value = myName || '';
     const curCfg = getFbConfig();
     document.getElementById('custom-fb-cfg').value = JSON.stringify(curCfg, null, 2);
-  }
-}
-
-function promptMyName() {
-  const current = myName || '';
-  const input = prompt('請輸入你的暱稱（標記在線成員及編輯紀錄）：', current);
-  if (input !== null) {
-    myName = input.trim();
-    localStorage.setItem('splitapp_my_name', myName);
-    updateUserNameDisplay();
-    if (presenceRef) {
-      presenceRef.update({ name: myName || '訪客' });
-    }
-    toast('暱稱已更新為：' + (myName || '訪客'));
   }
 }
 
@@ -1515,15 +1729,15 @@ function saveMyName() {
   localStorage.setItem('splitapp_my_name', myName);
   updateUserNameDisplay();
   if (presenceRef) {
-    presenceRef.update({ name: myName || '訪客' });
+    presenceRef.update({ name: getEffectiveName() });
   }
-  toast('暱稱已儲存！');
+  toast('暱稱已儲存為：' + getEffectiveName());
   closeCollabModal();
 }
 
 function updateUserNameDisplay() {
   const el = document.getElementById('header-user-name');
-  if (el) el.textContent = myName || '訪客';
+  if (el) el.textContent = myName ? myName : (defaultName + ' (點擊修改)');
 }
 
 function saveCustomFbConfig() {
@@ -1545,9 +1759,16 @@ function resetFbConfig() {
   toast('已重設為預設 Firebase 設定');
 }
 
+// Escape key to close modal
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeCollabModal();
+  });
+}
+
 /* ── Initialization ── */
 function init() {
-  load();
+  loadLocalDraft();
   document.getElementById('bill-title').value = state.billTitle || '';
   updateUserNameDisplay();
   renderMembers();
@@ -1572,6 +1793,15 @@ function init() {
 }
 
 window.state = state;
+window.getState = () => state;
+window.setState = (s) => { state = s; };
+window.save = save;
+window.loadLocalDraft = loadLocalDraft;
+window.loadRoomCache = loadRoomCache;
+window.sanitizeState = sanitizeState;
+window.generateRoomId = generateRoomId;
+window.getActiveRoomId = () => activeRoomId;
+window.setActiveRoomId = (r) => { activeRoomId = r; };
 window.computeBalances = computeBalances;
 window.minimizeTransactions = minimizeTransactions;
 window.joinRoom = joinRoom;

@@ -3,7 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>分帳程式</title>
+  <title>分帳程式 - 線上即時共編</title>
+
+  <!-- Firebase SDK (Compat v9) for Realtime Database -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- QRCode.js for generating instant mobile join QR code -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -16,9 +24,83 @@
 
     body { font-family: 'Noto Sans TC','Microsoft JhengHei',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
 
-    header { background:linear-gradient(135deg,#2e7d32 0%,#43a047 55%,#66bb6a 100%); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:12px; box-shadow:0 3px 12px rgba(0,0,0,0.22); flex-shrink:0; }
-    header h1 { font-size:1.3rem; letter-spacing:1px; }
-    header .sub { font-size:0.75rem; opacity:0.85; margin-top:2px; }
+    header { background:linear-gradient(135deg,#2e7d32 0%,#43a047 55%,#66bb6a 100%); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; gap:12px; box-shadow:0 3px 12px rgba(0,0,0,0.22); flex-shrink:0; }
+    header h1 { font-size:1.3rem; letter-spacing:1px; display:flex; align-items:center; gap:8px; }
+    header .sub { font-size:0.75rem; opacity:0.88; margin-top:2px; }
+    .header-user-btn { background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); color:#fff; padding:5px 12px; border-radius:20px; font-size:0.76rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:5px; transition:background 0.15s; white-space:nowrap; }
+    .header-user-btn:hover { background:rgba(255,255,255,0.32); }
+
+    /* ── Collaboration Status Bar ── */
+    .collab-bar {
+      background: #fff;
+      border-bottom: 1.5px solid var(--green-border);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .collab-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .collab-right { display: flex; align-items: center; gap: 6px; }
+    .collab-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+    .collab-dot.online { background: #2e7d32; box-shadow: 0 0 6px #4caf50; animation: pulse-dot 2s infinite; }
+    .collab-dot.connecting { background: #f57c00; animation: blink 1s infinite; }
+    .collab-dot.local { background: #9e9e9e; }
+    @keyframes pulse-dot {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(76, 175, 80, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .collab-badge {
+      background: var(--green-bg);
+      border: 1px solid var(--green-border);
+      color: var(--green);
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.15s;
+    }
+    .collab-badge:hover { background: #c8e6c9; }
+    .collab-presence {
+      background: var(--pool-bg);
+      border: 1px solid var(--pool-border);
+      color: var(--pool);
+      padding: 3px 9px;
+      border-radius: 12px;
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-collab {
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+    .btn-collab.primary { background: var(--green); color: #fff; }
+    .btn-collab.primary:hover { background: var(--green-light); }
+    .btn-collab.outline { background: #fff; border-color: var(--green); color: var(--green); }
+    .btn-collab.outline:hover { background: var(--green-bg); }
+    .btn-collab.text { background: transparent; color: var(--text-muted); border-color: transparent; }
+    .btn-collab.text:hover { color: var(--red); background: #ffebee; }
 
     .tab-nav { display:flex; background:var(--card-bg); border-bottom:2px solid var(--green-border); flex-shrink:0; overflow-x:auto; }
     .tab-nav::-webkit-scrollbar { display:none; }
@@ -34,8 +116,8 @@
     .card-title.pool { color:var(--pool); }
 
     label { font-size:0.8rem; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px; }
-    input[type=text],input[type=number],select { width:100%; padding:9px 12px; border:1.5px solid #ddd; border-radius:8px; font-size:0.9rem; font-family:inherit; background:#fafafa; transition:border-color 0.15s; outline:none; }
-    input:focus,select:focus { border-color:var(--green-light); background:#fff; }
+    input[type=text],input[type=number],select,textarea { width:100%; padding:9px 12px; border:1.5px solid #ddd; border-radius:8px; font-size:0.9rem; font-family:inherit; background:#fafafa; transition:border-color 0.15s; outline:none; }
+    input:focus,select:focus,textarea:focus { border-color:var(--green-light); background:#fff; }
 
     .form-row { display:flex; gap:10px; flex-wrap:wrap; }
     .form-row > * { flex:1; min-width:120px; }
@@ -128,7 +210,64 @@
     #toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%) translateY(80px); background:#222; color:#fff; padding:10px 22px; border-radius:24px; font-size:0.84rem; font-weight:600; z-index:9999; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); white-space:nowrap; pointer-events:none; }
     #toast.show { transform:translateX(-50%) translateY(0); }
 
-    @media (max-width:480px) { .form-row > * { min-width:100%; } .settle-summary { grid-template-columns:repeat(2,1fr); } }
+    /* ── Modal Dialog ── */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(2px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 10000; padding: 16px;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+    .modal-card {
+      background: #fff; border-radius: 16px;
+      max-width: 480px; width: 100%; max-height: 90vh;
+      overflow-y: auto; box-shadow: 0 12px 36px rgba(0,0,0,0.28);
+      transform: translateY(16px); transition: transform 0.2s cubic-bezier(0.16,1,0.3,1);
+      padding: 20px;
+    }
+    .modal-overlay.active .modal-card { transform: translateY(0); }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px; border-bottom: 1.5px solid #eee; padding-bottom: 10px;
+    }
+    .modal-header h3 { font-size: 1.1rem; color: var(--green); display: flex; align-items: center; gap: 8px; }
+    .modal-close { background: none; border: none; font-size: 1.3rem; cursor: pointer; color: #999; padding: 4px 8px; border-radius: 6px; }
+    .modal-close:hover { color: #333; background: #eee; }
+
+    .modal-tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    .m-tab-btn { background: none; border: none; font-size: 0.82rem; font-weight: 700; color: var(--text-muted); padding: 6px 12px; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+    .m-tab-btn.active { background: var(--green-bg); color: var(--green); }
+
+    .m-tab-pane { display: none; }
+    .m-tab-pane.active { display: block; }
+
+    .qr-container {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 14px; background: #fafafa; border-radius: 10px; border: 1.5px dashed #ccc;
+      margin: 12px 0; min-height: 170px;
+    }
+    .qr-container canvas, .qr-container img { max-width: 150px; max-height: 150px; border-radius: 6px; }
+
+    .copy-box { display: flex; gap: 8px; margin: 10px 0; }
+    .copy-box input { flex: 1; font-size: 0.84rem; padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 8px; background: #f9f9f9; }
+
+    .active-users-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .active-user-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: #e8f5e9; padding: 4px 10px; border-radius: 14px;
+      font-size: 0.75rem; font-weight: 600; border: 1px solid var(--green-border); color: #2e7d32;
+    }
+    .active-user-pill.is-me { background: #e3f2fd; border-color: #bbdefb; color: #1565c0; }
+    .online-indicator { width: 7px; height: 7px; border-radius: 50%; background: #43a047; display: inline-block; }
+
+    @media (max-width:480px) {
+      .form-row > * { min-width:100%; }
+      .settle-summary { grid-template-columns:repeat(2,1fr); }
+      .collab-bar { padding: 8px 12px; }
+    }
   </style>
 </head>
 <body>
@@ -136,9 +275,31 @@
 <header>
   <div>
     <h1>💰 分帳程式</h1>
-    <div class="sub">輕鬆計算、一鍵結算</div>
+    <div class="sub">輕鬆計算、一鍵結算 · 線上共同編輯</div>
   </div>
+  <button class="header-user-btn" onclick="promptMyName()" title="點擊修改你的暱稱">
+    👤 <span id="header-user-name">訪客</span>
+  </button>
 </header>
+
+<!-- ══ 線上共編狀態列 (Collaboration Bar) ══ -->
+<div id="collab-bar" class="collab-bar">
+  <div class="collab-left">
+    <span id="collab-status-dot" class="collab-dot local"></span>
+    <span id="collab-status-text" style="font-weight:700">本機模式</span>
+    <span id="collab-room-badge" class="collab-badge" style="display:none" onclick="openShareModal()" title="點擊查看房間資訊與 QR Code">
+      房號: <strong id="collab-room-id">-</strong>
+    </span>
+    <span id="collab-presence-badge" class="collab-presence" style="display:none" onclick="openShareModal()" title="點擊查看在線成員">
+      👥 <span id="collab-presence-count">1</span> 人在線
+    </span>
+  </div>
+  <div class="collab-right">
+    <button id="btn-collab-start" class="btn-collab primary" onclick="openCollabModal('rooms')">🌐 開啟線上共編</button>
+    <button id="btn-collab-share" class="btn-collab outline" style="display:none" onclick="openShareModal()">🔗 分享 / QR Code</button>
+    <button id="btn-collab-leave" class="btn-collab text" style="display:none" onclick="leaveRoom(true)" title="退出目前房間回到本機">🚪 退出房間</button>
+  </div>
+</div>
 
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('members')">👥 成員</button>
@@ -151,7 +312,7 @@
 <div id="tab-members" class="tab-content active">
   <div class="bill-title-bar">
     <span>📋</span>
-    <input id="bill-title" placeholder="輸入帳單名稱" />
+    <input id="bill-title" placeholder="輸入帳單名稱（如：日本五日遊、週六聚餐）" />
   </div>
   <div class="card">
     <div class="card-title">➕ 新增成員</div>
@@ -170,11 +331,11 @@
   <div class="card" style="background:var(--green-bg);border:1.5px solid var(--green-border)">
     <div style="font-size:0.8rem;color:var(--green);font-weight:700;margin-bottom:8px">💡 使用說明</div>
     <ul style="font-size:0.78rem;color:#555;line-height:1.9;padding-left:16px">
-      <li>先在「成員」頁新增所有參與者</li>
-      <li>「公費池」頁輸入各人繳的公費，系統自動平分</li>
-      <li>「費用」頁支援<strong>平均分攤</strong>或<strong>自訂每人金額</strong></li>
-      <li>「結算」頁整合所有帳目，給出最少付款方案</li>
-      <li>資料自動存在瀏覽器，關閉不消失</li>
+      <li>點擊上方 <strong>「🌐 開啟線上共編」</strong> 建立房間，把連結傳給朋友即可多人即時同步記帳！</li>
+      <li>「公費池」頁輸入各人繳的公費，系統自動平分。</li>
+      <li>「費用」頁支援 <strong>平均分攤</strong> 或 <strong>自訂每人金額</strong>。</li>
+      <li>「結算」頁整合所有帳目，給出最少付款方案。</li>
+      <li>離線或未進入房間時，資料自動保存在本機瀏覽器。</li>
     </ul>
   </div>
   <button class="btn btn-danger btn-full" onclick="clearAll()" style="margin-top:4px">🗑 清除所有資料（重新開始）</button>
@@ -285,236 +446,527 @@
   </div>
 </div>
 
+<!-- ══ 共編與分享 Modal ══ -->
+<div id="collab-modal" class="modal-overlay" onclick="if(event.target===this)closeCollabModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="modal-title">🌐 線上共同編輯</h3>
+      <button class="modal-close" onclick="closeCollabModal()">✕</button>
+    </div>
+
+    <div class="modal-tabs">
+      <button class="m-tab-btn" id="mtab-btn-share" onclick="switchModalTab('share')">🔗 邀請與分享</button>
+      <button class="m-tab-btn" id="mtab-btn-rooms" onclick="switchModalTab('rooms')">🚪 建立 / 加入</button>
+      <button class="m-tab-btn" id="mtab-btn-settings" onclick="switchModalTab('settings')">⚙️ 設定</button>
+    </div>
+
+    <!-- Modal Pane 1: Share -->
+    <div id="mpane-share" class="m-tab-pane">
+      <div id="share-active-view" style="display:none">
+        <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px">
+          朋友打開連結或掃描 QR Code 就能立即加入共同記帳，所有修改即時同步。
+        </p>
+
+        <div style="background:var(--green-bg);border:1.5px solid var(--green-border);border-radius:10px;padding:12px;margin-bottom:12px;text-align:center">
+          <div style="font-size:0.75rem;color:var(--green);font-weight:700">房間代碼 (Room ID)</div>
+          <div style="font-size:1.4rem;font-weight:800;letter-spacing:1px;color:var(--green);margin:4px 0" id="share-modal-room-id">-</div>
+          <button class="btn btn-outline btn-sm" onclick="copyText(activeRoomId, '已複製房號！')">📋 複製代碼</button>
+        </div>
+
+        <label>專屬共編邀請連結</label>
+        <div class="copy-box">
+          <input id="share-link-input" readonly onclick="this.select()" />
+          <button class="btn btn-primary btn-sm" onclick="copyShareLink()">📋 複製</button>
+        </div>
+
+        <div class="qr-container">
+          <div style="font-size:0.78rem;font-weight:700;color:#555;margin-bottom:8px">📱 手機相機掃描快速加入</div>
+          <div id="qr-code-box"></div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>👥 目前在線成員</label>
+          <div id="active-users-list" class="active-users-list">
+            <span style="font-size:0.75rem;color:#888">讀取中...</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="share-empty-view" style="text-align:center;padding:24px 0">
+        <div style="font-size:2.2rem;margin-bottom:8px">💡</div>
+        <p style="font-size:0.88rem;color:#666;margin-bottom:14px">目前為本機離線模式，尚未建立線上房間。</p>
+        <button class="btn btn-primary" onclick="switchModalTab('rooms')">👉 建立新房間開始共編</button>
+      </div>
+    </div>
+
+    <!-- Modal Pane 2: Rooms -->
+    <div id="mpane-rooms" class="m-tab-pane">
+      <div class="card" style="box-shadow:none;border:1.5px solid var(--green-border);margin-bottom:12px">
+        <div class="card-title">➕ 建立新共編房間</div>
+        <p class="hint" style="margin-bottom:10px">系統會產生一個隨機安全房間代碼，並將資料保存於雲端即時資料庫。</p>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;margin-bottom:12px;cursor:pointer">
+          <input type="checkbox" id="check-keep-local-data" checked style="width:auto" />
+          <span>將目前本機已有的成員與費用上傳至新房間</span>
+        </label>
+        <button class="btn btn-primary btn-full" onclick="createNewRoom()">🚀 立即建立新房間</button>
+      </div>
+
+      <div class="card" style="box-shadow:none;border:1.5px solid #ddd">
+        <div class="card-title" style="color:#555">📥 加入既有房間</div>
+        <div class="form-group">
+          <label>房號 或 邀請連結</label>
+          <input id="join-room-input" type="text" placeholder="例：bs_8k2a19 或貼上完整連結" />
+        </div>
+        <button class="btn btn-outline btn-full" onclick="handleJoinInput()">🤝 加入房間</button>
+      </div>
+    </div>
+
+    <!-- Modal Pane 3: Settings -->
+    <div id="mpane-settings" class="m-tab-pane">
+      <div class="form-group">
+        <label>你的暱稱</label>
+        <input id="my-name-input" type="text" placeholder="例：小明" maxlength="20" />
+        <div class="hint">標記在線成員及編輯紀錄，讓同伴知道是誰在操作。</div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveMyName()" style="margin-bottom:16px">💾 儲存暱稱</button>
+
+      <div style="border-top:1px dashed #ddd;padding-top:12px;margin-top:12px">
+        <div style="font-size:0.82rem;font-weight:700;color:#555;margin-bottom:6px">🔥 Firebase Realtime Database 設定（預設已配置）</div>
+        <p class="hint" style="margin-bottom:8px">預設已自動啟用 Firebase RTDB 雲端即時同步。若有自訂需求可直接修改。</p>
+        <textarea id="custom-fb-cfg" rows="5" style="font-size:0.75rem;font-family:monospace" placeholder="貼上自訂 firebaseConfig JSON..."></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-outline btn-sm" onclick="resetFbConfig()">重設為預設</button>
+          <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="saveCustomFbConfig()">儲存 Firebase 設定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
 const PALETTE=['#e53935','#e67e22','#2e7d32','#1565c0','#8e24aa','#00897b','#f4511e','#6d4c41','#0097a7','#d81b60'];
 
-let state={billTitle:'',members:[],expenses:[],pool:{}};
-let nextMemberId=1,nextExpenseId=1;
-let currentSplitMode='equal';
-let selectedParticipants=new Set();
+// Firebase default configuration
+const DEFAULT_FB_CONFIG = {
+  apiKey: "AIzaSyAbFZQ4tUuPXlHIYQI9XDwzAYR5VrOs33A",
+  authDomain: "trip-7ab77.firebaseapp.com",
+  databaseURL: "https://trip-7ab77-default-rtdb.firebaseio.com",
+  projectId: "trip-7ab77",
+  storageBucket: "trip-7ab77.firebasestorage.app",
+  messagingSenderId: "1055802193601",
+  appId: "1:1055802193601:web:ab67764f28e381f2c34640"
+};
 
-function save(){localStorage.setItem('splitapp_v4',JSON.stringify({state,nextMemberId,nextExpenseId}));}
-function load(){
-  try{
-    const raw=localStorage.getItem('splitapp_v4');
-    if(!raw){
-      // migrate from v3
-      const old=localStorage.getItem('splitapp_v3');
-      if(old){const d=JSON.parse(old);state=d.state||state;if(!state.pool)state.pool={};nextMemberId=d.nextMemberId||1;nextExpenseId=d.nextExpenseId||1;}
+let state = { billTitle: '', members: [], expenses: [], pool: {} };
+let currentSplitMode = 'equal';
+let selectedParticipants = new Set();
+
+// Collaborative Online State
+let activeRoomId = null;
+let activeRoomRef = null;
+let presenceRef = null;
+let myClientId = 'c_' + Math.random().toString(36).slice(2, 9);
+let myName = localStorage.getItem('splitapp_my_name') || '';
+let db = null;
+let isRemoteUpdating = false;
+let roomListeners = [];
+
+/* ── Base64 URL-safe encoding ── */
+function b64encode(obj) {
+  try {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch(e) { return ''; }
+}
+function b64decode(s) {
+  try {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    return JSON.parse(decodeURIComponent(escape(atob(s))));
+  } catch(e) { return null; }
+}
+
+/* ── UID generator ── */
+function uid(prefix = '') {
+  return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+/* ── Storage ── */
+function save(broadcast = true) {
+  // Save local cache
+  try {
+    localStorage.setItem('splitapp_v4', JSON.stringify({ state, nextMemberId: 1, nextExpenseId: 1 }));
+  } catch(_) {}
+
+  // If in room and connected, broadcast to Firebase
+  if (activeRoomId && db && broadcast && !isRemoteUpdating) {
+    try {
+      const payload = {
+        billTitle: state.billTitle || '',
+        members: state.members || [],
+        expenses: state.expenses || [],
+        pool: state.pool || {},
+        updatedAt: firebase.database.ServerValue.TIMESTAMP,
+        updatedBy: myName || '訪客'
+      };
+      activeRoomRef.child('data').set(payload).catch(err => {
+        console.warn('Firebase RTDB save warning:', err);
+      });
+    } catch(e) {
+      console.warn('Sync error:', e);
+    }
+  }
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem('splitapp_v4');
+    if (!raw) {
+      const old = localStorage.getItem('splitapp_v3');
+      if (old) {
+        const d = JSON.parse(old);
+        state = d.state || state;
+        if (!state.pool) state.pool = {};
+      }
       return;
     }
-    const d=JSON.parse(raw);state=d.state||state;if(!state.pool)state.pool={};
-    nextMemberId=d.nextMemberId||1;nextExpenseId=d.nextExpenseId||1;
-  }catch(_){}
+    const d = JSON.parse(raw);
+    state = d.state || state;
+    if (!state.pool) state.pool = {};
+  } catch(_) {}
 }
 
-function switchTab(name){
-  document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(el=>el.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
-  [...document.querySelectorAll('.tab-btn')].find(b=>b.getAttribute('onclick').includes("'"+name+"'")).classList.add('active');
-  if(name==='pool')renderPoolTab();
-  if(name==='expenses')renderExpenseForm();
-  if(name==='settle')renderSettle();
+/* ── UI Helpers ── */
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  const target = document.getElementById('tab-' + name);
+  if (target) target.classList.add('active');
+  const btn = [...document.querySelectorAll('.tab-btn')].find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + name + "'"));
+  if (btn) btn.classList.add('active');
+
+  if (name === 'pool') renderPoolTab();
+  if (name === 'expenses') renderExpenseForm();
+  if (name === 'settle') renderSettle();
 }
 
-function memberColor(id){return PALETTE[state.members.findIndex(m=>m.id===id)%PALETTE.length];}
-function fmt(n){return n===Math.floor(n)?n.toString():n.toFixed(2).replace(/\.?0+$/,'');}
-function escHtml(str){return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function avatar(m,size=28){const c=memberColor(m.id);return `<div style="width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.45)}px;font-weight:700;color:#fff;background:${c};flex-shrink:0">${m.name[0]}</div>`;}
+function memberColor(id) {
+  const idx = state.members.findIndex(m => String(m.id) === String(id));
+  return PALETTE[(idx >= 0 ? idx : 0) % PALETTE.length];
+}
+function fmt(n) {
+  return n === Math.floor(n) ? n.toString() : n.toFixed(2).replace(/\.?0+$/, '');
+}
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function avatar(m, size = 28) {
+  const c = memberColor(m.id);
+  const initial = (m.name && m.name.length) ? m.name[0] : '?';
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:${Math.round(size*0.45)}px;font-weight:700;color:#fff;background:${c};flex-shrink:0">${escHtml(initial)}</div>`;
+}
 let toastTimer;
-function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2400);}
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+/* ── Copy text utility ── */
+async function copyText(text, successMsg = '已複製到剪貼簿') {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    toast(successMsg);
+  } catch (e) {
+    toast('複製失敗，請手動複製');
+  }
+}
 
 /* ── Members ── */
-function addMember(){
-  const input=document.getElementById('member-input');
-  const name=input.value.trim();
-  if(!name){toast('請輸入姓名');return;}
-  if(state.members.some(m=>m.name===name)){toast('姓名重複');return;}
-  const id=nextMemberId++;
-  state.members.push({id,name});state.pool[id]=0;
-  input.value='';save();renderMembers();toast('已新增：'+name);
+function addMember() {
+  const input = document.getElementById('member-input');
+  const name = input.value.trim();
+  if (!name) { toast('請輸入姓名'); return; }
+  if (state.members.some(m => m.name === name)) { toast('姓名重複'); return; }
+  const id = uid('m');
+  state.members.push({ id, name });
+  state.pool[id] = 0;
+  input.value = '';
+  save(true);
+  renderMembers();
+  toast('已新增：' + name);
 }
-function removeMember(id){
-  const hasExp=state.expenses.some(e=>e.payerId===id||(e.participantIds||[]).includes(id)||(e.customSplits&&e.customSplits[id]));
-  if(hasExp&&!confirm('此成員有相關費用記錄，確定刪除嗎？'))return;
-  state.members=state.members.filter(m=>m.id!==id);delete state.pool[id];
-  state.expenses=state.expenses.filter(e=>{
-    if(e.payerId===id)return false;
-    if(e.splitMode==='custom'){delete e.customSplits[id];e.amount=Object.values(e.customSplits).reduce((s,v)=>s+v,0);return e.amount>0;}
-    e.participantIds=(e.participantIds||[]).filter(p=>p!==id);
-    return e.participantIds.length>0;
+
+function removeMember(id) {
+  const strId = String(id);
+  const hasExp = state.expenses.some(e =>
+    String(e.payerId) === strId ||
+    (e.participantIds || []).map(String).includes(strId) ||
+    (e.customSplits && e.customSplits[strId] !== undefined)
+  );
+  if (hasExp && !confirm('此成員有相關費用記錄，確定刪除嗎？')) return;
+  state.members = state.members.filter(m => String(m.id) !== strId);
+  delete state.pool[strId];
+  state.expenses = state.expenses.filter(e => {
+    if (String(e.payerId) === strId) return false;
+    if (e.splitMode === 'custom') {
+      delete e.customSplits[strId];
+      e.amount = Object.values(e.customSplits).reduce((s, v) => s + v, 0);
+      return e.amount > 0;
+    }
+    e.participantIds = (e.participantIds || []).filter(p => String(p) !== strId);
+    return e.participantIds.length > 0;
   });
-  save();renderMembers();toast('已移除成員');
+  save(true);
+  renderMembers();
+  toast('已移除成員');
 }
-function renderMembers(){
-  const list=document.getElementById('member-list');
-  document.getElementById('member-count').textContent=state.members.length;
-  if(!state.members.length){list.innerHTML='<div class="empty-state"><div class="icon">👤</div>尚未新增任何成員</div>';return;}
-  list.innerHTML='';
-  state.members.forEach(m=>{
-    const tag=document.createElement('div');tag.className='member-tag';
-    tag.innerHTML=`${avatar(m,24)}${escHtml(m.name)}<button class="del-btn" onclick="removeMember(${m.id})">✕</button>`;
+
+function renderMembers() {
+  const list = document.getElementById('member-list');
+  document.getElementById('member-count').textContent = state.members.length;
+  if (!state.members.length) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">👤</div>尚未新增任何成員</div>';
+    return;
+  }
+  list.innerHTML = '';
+  state.members.forEach(m => {
+    const tag = document.createElement('div');
+    tag.className = 'member-tag';
+    tag.innerHTML = `${avatar(m, 24)}${escHtml(m.name)}<button class="del-btn" onclick="removeMember('${m.id}')">✕</button>`;
     list.appendChild(tag);
   });
 }
-document.getElementById('bill-title').addEventListener('input',function(){state.billTitle=this.value;save();});
+document.getElementById('bill-title').addEventListener('input', function() {
+  state.billTitle = this.value;
+  save(true);
+});
 
 /* ── Pool ── */
-function renderPoolTab(){
-  const rows=document.getElementById('pool-member-rows');
-  const summary=document.getElementById('pool-summary');
-  if(!state.members.length){rows.innerHTML='<div class="empty-state"><div class="icon">👥</div>請先在「成員」頁新增成員</div>';summary.style.display='none';return;}
-  rows.innerHTML='';
-  state.members.forEach(m=>{
-    const val=state.pool[m.id]||0;
-    const row=document.createElement('div');row.className='pool-member-row';
-    row.innerHTML=`<div class="pool-member-name">${avatar(m,26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" value="${val>0?val:''}" id="pool-input-${m.id}" oninput="updatePool(${m.id},this.value)" /><span class="pool-share-label" id="pool-share-${m.id}"></span>`;
+function renderPoolTab() {
+  const rows = document.getElementById('pool-member-rows');
+  const summary = document.getElementById('pool-summary');
+  if (!state.members.length) {
+    rows.innerHTML = '<div class="empty-state"><div class="icon">👥</div>請先在「成員」頁新增成員</div>';
+    summary.style.display = 'none';
+    return;
+  }
+  rows.innerHTML = '';
+  state.members.forEach(m => {
+    const val = state.pool[m.id] || 0;
+    const row = document.createElement('div');
+    row.className = 'pool-member-row';
+    row.innerHTML = `<div class="pool-member-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" value="${val > 0 ? val : ''}" id="pool-input-${m.id}" oninput="updatePool('${m.id}',this.value)" /><span class="pool-share-label" id="pool-share-${m.id}"></span>`;
     rows.appendChild(row);
   });
   updatePoolSummary();
 }
-function updatePool(memberId,rawVal){state.pool[memberId]=parseFloat(rawVal)||0;save();updatePoolSummary();}
-function updatePoolSummary(){
-  const total=state.members.reduce((s,m)=>s+(state.pool[m.id]||0),0);
-  const n=state.members.length;const per=n>0?total/n:0;
-  state.members.forEach(m=>{
-    const diff=(state.pool[m.id]||0)-per;
-    const el=document.getElementById('pool-share-'+m.id);if(!el)return;
-    if(total===0){el.textContent='';}
-    else if(Math.abs(diff)<0.005){el.textContent='✅ 已平衡';el.style.color='#43a047';}
-    else if(diff>0){el.textContent=`應收 $${fmt(diff)}`;el.style.color='var(--green)';}
-    else{el.textContent=`應補 $${fmt(-diff)}`;el.style.color='var(--red)';}
+
+function updatePool(memberId, rawVal) {
+  state.pool[memberId] = parseFloat(rawVal) || 0;
+  save(true);
+  updatePoolSummary();
+}
+
+function updatePoolSummary() {
+  const total = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  const n = state.members.length;
+  const per = n > 0 ? total / n : 0;
+  state.members.forEach(m => {
+    const diff = (state.pool[m.id] || 0) - per;
+    const el = document.getElementById('pool-share-' + m.id);
+    if (!el) return;
+    if (total === 0) { el.textContent = ''; }
+    else if (Math.abs(diff) < 0.005) { el.textContent = '✅ 已平衡'; el.style.color = '#43a047'; }
+    else if (diff > 0) { el.textContent = `應收 $${fmt(diff)}`; el.style.color = 'var(--green)'; }
+    else { el.textContent = `應補 $${fmt(-diff)}`; el.style.color = 'var(--red)'; }
   });
-  const summary=document.getElementById('pool-summary');
-  if(total>0){summary.style.display='flex';document.getElementById('pool-total-display').textContent='$'+fmt(total);document.getElementById('pool-per-display').textContent='$'+fmt(per);document.getElementById('pool-members-display').textContent=n;}
-  else{summary.style.display='none';}
+  const summary = document.getElementById('pool-summary');
+  if (total > 0) {
+    summary.style.display = 'flex';
+    document.getElementById('pool-total-display').textContent = '$' + fmt(total);
+    document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+    document.getElementById('pool-members-display').textContent = n;
+  } else {
+    summary.style.display = 'none';
+  }
 }
 
-/* ── Split mode ── */
-function setSplitMode(mode){
-  currentSplitMode=mode;
-  document.getElementById('mode-btn-equal').classList.toggle('active',mode==='equal');
-  document.getElementById('mode-btn-custom').classList.toggle('active',mode==='custom');
-  document.getElementById('equal-section').style.display=mode==='equal'?'block':'none';
-  document.getElementById('custom-section').style.display=mode==='custom'?'block':'none';
-  if(mode==='custom')renderCustomSplitRows();
+/* ── Split Mode ── */
+function setSplitMode(mode) {
+  currentSplitMode = mode;
+  document.getElementById('mode-btn-equal').classList.toggle('active', mode === 'equal');
+  document.getElementById('mode-btn-custom').classList.toggle('active', mode === 'custom');
+  document.getElementById('equal-section').style.display = mode === 'equal' ? 'block' : 'none';
+  document.getElementById('custom-section').style.display = mode === 'custom' ? 'block' : 'none';
+  if (mode === 'custom') renderCustomSplitRows();
 }
 
-function renderCustomSplitRows(){
-  const container=document.getElementById('custom-split-rows');
-  container.innerHTML='';
-  state.members.forEach(m=>{
-    const row=document.createElement('div');row.className='custom-split-row';
-    row.innerHTML=`<div class="custom-split-name">${avatar(m,26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" id="custom-input-${m.id}" oninput="updateCustomTotal()" />`;
+function renderCustomSplitRows() {
+  const container = document.getElementById('custom-split-rows');
+  container.innerHTML = '';
+  state.members.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'custom-split-row';
+    row.innerHTML = `<div class="custom-split-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" id="custom-input-${m.id}" oninput="updateCustomTotal()" />`;
     container.appendChild(row);
   });
   updateCustomTotal();
 }
 
-function updateCustomTotal(){
-  const total=state.members.reduce((s,m)=>{const el=document.getElementById('custom-input-'+m.id);return s+(el?parseFloat(el.value)||0:0);},0);
-  document.getElementById('custom-total-display').textContent='$'+fmt(total);
+function updateCustomTotal() {
+  const total = state.members.reduce((s, m) => {
+    const el = document.getElementById('custom-input-' + m.id);
+    return s + (el ? parseFloat(el.value) || 0 : 0);
+  }, 0);
+  document.getElementById('custom-total-display').textContent = '$' + fmt(total);
 }
 
 /* ── Expenses ── */
-function renderExpenseForm(){
-  const payerSel=document.getElementById('exp-payer');
-  payerSel.innerHTML=state.members.length
-    ?state.members.map(m=>`<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
-    :'<option value="">（請先新增成員）</option>';
+function renderExpenseForm() {
+  const payerSel = document.getElementById('exp-payer');
+  const prevVal = payerSel.value;
+  payerSel.innerHTML = state.members.length
+    ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
+    : '<option value="">（請先新增成員）</option>';
+  if (prevVal && state.members.some(m => String(m.id) === String(prevVal))) {
+    payerSel.value = prevVal;
+  }
 
-  const chips=document.getElementById('exp-participants');
-  chips.innerHTML='';
-  if(!state.members.length){chips.innerHTML='<span style="font-size:0.78rem;color:#aaa">請先在成員頁新增人員</span>';return;}
-  const allChip=document.createElement('span');allChip.className='chip all-chip';allChip.textContent='全部';
-  allChip.onclick=()=>{selectedParticipants.clear();updateChips();};chips.appendChild(allChip);
-  state.members.forEach(m=>{
-    const chip=document.createElement('span');chip.className='chip'+(selectedParticipants.has(m.id)?' selected':'');
-    chip.dataset.id=m.id;chip.textContent=m.name;
-    chip.onclick=()=>{if(selectedParticipants.has(m.id))selectedParticipants.delete(m.id);else selectedParticipants.add(m.id);updateChips();};
+  const chips = document.getElementById('exp-participants');
+  chips.innerHTML = '';
+  if (!state.members.length) {
+    chips.innerHTML = '<span style="font-size:0.78rem;color:#aaa">請先在成員頁新增人員</span>';
+    return;
+  }
+  const allChip = document.createElement('span');
+  allChip.className = 'chip all-chip';
+  allChip.textContent = '全部';
+  allChip.onclick = () => { selectedParticipants.clear(); updateChips(); };
+  chips.appendChild(allChip);
+
+  state.members.forEach(m => {
+    const strId = String(m.id);
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (selectedParticipants.has(strId) ? ' selected' : '');
+    chip.dataset.id = strId;
+    chip.textContent = m.name;
+    chip.onclick = () => {
+      if (selectedParticipants.has(strId)) selectedParticipants.delete(strId);
+      else selectedParticipants.add(strId);
+      updateChips();
+    };
     chips.appendChild(chip);
   });
   updateChips();
-  if(currentSplitMode==='custom')renderCustomSplitRows();
+  if (currentSplitMode === 'custom') renderCustomSplitRows();
 }
 
-function updateChips(){
-  const chips=document.getElementById('exp-participants');
-  const allChip=chips.querySelector('.all-chip');
-  const all=selectedParticipants.size===0;
-  if(allChip)allChip.classList.toggle('selected',all);
-  chips.querySelectorAll('.chip:not(.all-chip)').forEach(c=>c.classList.toggle('selected',selectedParticipants.has(parseInt(c.dataset.id))));
+function updateChips() {
+  const chips = document.getElementById('exp-participants');
+  const allChip = chips.querySelector('.all-chip');
+  const all = selectedParticipants.size === 0;
+  if (allChip) allChip.classList.toggle('selected', all);
+  chips.querySelectorAll('.chip:not(.all-chip)').forEach(c =>
+    c.classList.toggle('selected', selectedParticipants.has(c.dataset.id))
+  );
 }
 
-function addExpense(){
-  if(state.members.length<2){toast('請先新增至少 2 位成員');return;}
-  const name=document.getElementById('exp-name').value.trim();
-  const payerId=parseInt(document.getElementById('exp-payer').value);
-  if(!name){toast('請輸入費用名稱');return;}
-  if(!payerId){toast('請選擇付款人');return;}
+function addExpense() {
+  if (state.members.length < 2) { toast('請先新增至少 2 位成員'); return; }
+  const name = document.getElementById('exp-name').value.trim();
+  const payerId = document.getElementById('exp-payer').value;
+  if (!name) { toast('請輸入費用名稱'); return; }
+  if (!payerId) { toast('請選擇付款人'); return; }
 
-  if(currentSplitMode==='equal'){
-    const amount=parseFloat(document.getElementById('exp-amount').value);
-    if(!amount||amount<=0){toast('請輸入有效金額');return;}
-    const participantIds=selectedParticipants.size>0?[...selectedParticipants]:state.members.map(m=>m.id);
-    if(!participantIds.includes(payerId))participantIds.push(payerId);
-    state.expenses.push({id:nextExpenseId++,name,amount,payerId,splitMode:'equal',participantIds,customSplits:{}});
+  if (currentSplitMode === 'equal') {
+    const amount = parseFloat(document.getElementById('exp-amount').value);
+    if (!amount || amount <= 0) { toast('請輸入有效金額'); return; }
+    const participantIds = selectedParticipants.size > 0
+      ? [...selectedParticipants]
+      : state.members.map(m => String(m.id));
+    if (!participantIds.includes(String(payerId))) participantIds.push(String(payerId));
+    state.expenses.push({ id: uid('e'), name, amount, payerId, splitMode: 'equal', participantIds, customSplits: {} });
   } else {
-    const customSplits={};
-    let total=0;
-    state.members.forEach(m=>{
-      const el=document.getElementById('custom-input-'+m.id);
-      const v=parseFloat(el?.value)||0;
-      if(v>0){customSplits[m.id]=v;total+=v;}
+    const customSplits = {};
+    let total = 0;
+    state.members.forEach(m => {
+      const el = document.getElementById('custom-input-' + m.id);
+      const v = parseFloat(el?.value) || 0;
+      if (v > 0) { customSplits[String(m.id)] = v; total += v; }
     });
-    if(total<=0){toast('請輸入至少一人的分攤金額');return;}
-    state.expenses.push({id:nextExpenseId++,name,amount:total,payerId,splitMode:'custom',participantIds:[],customSplits});
+    if (total <= 0) { toast('請輸入至少一人的分攤金額'); return; }
+    state.expenses.push({ id: uid('e'), name, amount: total, payerId, splitMode: 'custom', participantIds: [], customSplits });
   }
 
-  document.getElementById('exp-name').value='';
-  document.getElementById('exp-amount').value='';
+  document.getElementById('exp-name').value = '';
+  document.getElementById('exp-amount').value = '';
   selectedParticipants.clear();
-  save();renderExpenses();renderExpenseForm();
+  save(true);
+  renderExpenses();
+  renderExpenseForm();
   toast(`已新增：${name}`);
 }
 
-function removeExpense(id){state.expenses=state.expenses.filter(e=>e.id!==id);save();renderExpenses();}
+function removeExpense(id) {
+  const strId = String(id);
+  state.expenses = state.expenses.filter(e => String(e.id) !== strId);
+  save(true);
+  renderExpenses();
+}
 
-function renderExpenses(){
-  const list=document.getElementById('expense-list');
-  document.getElementById('exp-count').textContent=state.expenses.length;
-  const total=state.expenses.reduce((s,e)=>s+e.amount,0);
-  document.getElementById('exp-total').textContent='$'+fmt(total);
-  if(!state.expenses.length){list.innerHTML='<div class="empty-state"><div class="icon">🧾</div>尚無費用記錄<br>請先新增成員再新增費用</div>';return;}
-  list.innerHTML='';
-  [...state.expenses].reverse().forEach(e=>{
-    const payer=state.members.find(m=>m.id===e.payerId);
-    const isCustom=e.splitMode==='custom';
-    let partsText='';
-    if(isCustom){
-      partsText=Object.entries(e.customSplits).map(([id,amt])=>{
-        const m=state.members.find(m=>m.id===parseInt(id));
-        return m?`${escHtml(m.name)} $${fmt(amt)}`:'';
+function renderExpenses() {
+  const list = document.getElementById('expense-list');
+  document.getElementById('exp-count').textContent = state.expenses.length;
+  const total = state.expenses.reduce((s, e) => s + e.amount, 0);
+  document.getElementById('exp-total').textContent = '$' + fmt(total);
+  if (!state.expenses.length) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">🧾</div>尚無費用記錄<br>請先新增成員再新增費用</div>';
+    return;
+  }
+  list.innerHTML = '';
+  [...state.expenses].reverse().forEach(e => {
+    const payer = state.members.find(m => String(m.id) === String(e.payerId));
+    const isCustom = e.splitMode === 'custom';
+    let partsText = '';
+    if (isCustom) {
+      partsText = Object.entries(e.customSplits || {}).map(([id, amt]) => {
+        const m = state.members.find(m => String(m.id) === String(id));
+        return m ? `${escHtml(m.name)} $${fmt(amt)}` : '';
       }).filter(Boolean).join('、');
     } else {
-      const parts=e.participantIds.map(pid=>state.members.find(m=>m.id===pid)?.name).filter(Boolean);
-      const share=e.amount/e.participantIds.length;
-      partsText=parts.map(escHtml).join('、')+`（每人 $${fmt(share)}）`;
+      const parts = (e.participantIds || []).map(pid => state.members.find(m => String(m.id) === String(pid))?.name).filter(Boolean);
+      const share = (e.participantIds && e.participantIds.length) ? e.amount / e.participantIds.length : e.amount;
+      partsText = parts.map(escHtml).join('、') + `（每人 $${fmt(share)}）`;
     }
-    const item=document.createElement('div');item.className='expense-item';
-    item.innerHTML=`
+    const item = document.createElement('div');
+    item.className = 'expense-item';
+    item.innerHTML = `
       <div class="expense-header">
         <div style="flex:1;min-width:0">
-          <div class="expense-name">${escHtml(e.name)}${isCustom?'<span class="expense-custom-tag">自訂</span>':''}</div>
-          <div class="expense-meta">由 <strong style="color:${payer?memberColor(payer.id):'#888'}">${payer?escHtml(payer.name):'（已刪除）'}</strong> 付款</div>
+          <div class="expense-name">${escHtml(e.name)}${isCustom ? '<span class="expense-custom-tag">自訂</span>' : ''}</div>
+          <div class="expense-meta">由 <strong style="color:${payer ? memberColor(payer.id) : '#888'}">${payer ? escHtml(payer.name) : '（已刪除）'}</strong> 付款</div>
           <div class="expense-participants">分攤：${partsText}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
           <div class="expense-amount">$${fmt(e.amount)}</div>
-          <button class="btn btn-danger btn-sm" onclick="removeExpense(${e.id})">刪除</button>
+          <button class="btn btn-danger btn-sm" onclick="removeExpense('${e.id}')">刪除</button>
         </div>
       </div>`;
     list.appendChild(item);
@@ -522,112 +974,610 @@ function renderExpenses(){
 }
 
 /* ── Settlement ── */
-function computeBalances(){
-  const bal={},expBal={},poolBal={};
-  state.members.forEach(m=>{bal[m.id]=0;expBal[m.id]=0;poolBal[m.id]=0;});
+function computeBalances(s = state) {
+  const bal = {}, expBal = {}, poolBal = {};
+  s.members.forEach(m => {
+    const id = String(m.id);
+    bal[id] = 0; expBal[id] = 0; poolBal[id] = 0;
+  });
 
-  state.expenses.forEach(e=>{
-    if(e.splitMode==='custom'){
-      if(bal[e.payerId]!==undefined){bal[e.payerId]+=e.amount;expBal[e.payerId]+=e.amount;}
-      Object.entries(e.customSplits).forEach(([id,amt])=>{
-        const mid=parseInt(id);
-        if(bal[mid]!==undefined){bal[mid]-=amt;expBal[mid]-=amt;}
+  s.expenses.forEach(e => {
+    const payerId = String(e.payerId);
+    if (e.splitMode === 'custom') {
+      if (bal[payerId] !== undefined) { bal[payerId] += e.amount; expBal[payerId] += e.amount; }
+      Object.entries(e.customSplits || {}).forEach(([id, amt]) => {
+        const mid = String(id);
+        if (bal[mid] !== undefined) { bal[mid] -= amt; expBal[mid] -= amt; }
       });
     } else {
-      const parts=(e.participantIds||[]).filter(id=>bal[id]!==undefined);
-      if(!parts.length)return;
-      const share=e.amount/parts.length;
-      if(bal[e.payerId]!==undefined){bal[e.payerId]+=e.amount;expBal[e.payerId]+=e.amount;}
-      parts.forEach(id=>{bal[id]-=share;expBal[id]-=share;});
+      const parts = (e.participantIds || []).map(String).filter(id => bal[id] !== undefined);
+      if (!parts.length) return;
+      const share = e.amount / parts.length;
+      if (bal[payerId] !== undefined) { bal[payerId] += e.amount; expBal[payerId] += e.amount; }
+      parts.forEach(id => { bal[id] -= share; expBal[id] -= share; });
     }
   });
 
-  const poolTotal=state.members.reduce((s,m)=>s+(state.pool[m.id]||0),0);
-  const n=state.members.length;
-  if(poolTotal>0&&n>0){
-    const per=poolTotal/n;
-    state.members.forEach(m=>{const net=(state.pool[m.id]||0)-per;bal[m.id]+=net;poolBal[m.id]+=net;});
+  const poolTotal = s.members.reduce((sum, m) => sum + (s.pool[m.id] || 0), 0);
+  const n = s.members.length;
+  if (poolTotal > 0 && n > 0) {
+    const per = poolTotal / n;
+    s.members.forEach(m => {
+      const id = String(m.id);
+      const net = (s.pool[m.id] || 0) - per;
+      bal[id] += net;
+      poolBal[id] += net;
+    });
   }
-  return{bal,expBal,poolBal,poolTotal};
+  return { bal, expBal, poolBal, poolTotal };
 }
 
-function minimizeTransactions(balances){
-  const creditors=[],debtors=[];
-  Object.entries(balances).forEach(([id,b])=>{
-    const v=Math.round(b*100)/100;
-    if(v>0.005)creditors.push({id:parseInt(id),amount:v});
-    else if(v<-0.005)debtors.push({id:parseInt(id),amount:-v});
+function minimizeTransactions(balances) {
+  const creditors = [], debtors = [];
+  Object.entries(balances).forEach(([id, b]) => {
+    const v = Math.round(b * 100) / 100;
+    if (v > 0.005) creditors.push({ id: String(id), amount: v });
+    else if (v < -0.005) debtors.push({ id: String(id), amount: -v });
   });
-  creditors.sort((a,b)=>b.amount-a.amount);debtors.sort((a,b)=>b.amount-a.amount);
-  const txs=[];let ci=0,di=0;
-  while(ci<creditors.length&&di<debtors.length){
-    const c=creditors[ci],d=debtors[di];
-    const amount=Math.min(c.amount,d.amount);
-    txs.push({from:d.id,to:c.id,amount:Math.round(amount*100)/100});
-    c.amount-=amount;d.amount-=amount;
-    if(c.amount<0.005)ci++;if(d.amount<0.005)di++;
+  creditors.sort((a, b) => b.amount - a.amount);
+  debtors.sort((a, b) => b.amount - a.amount);
+  const txs = [];
+  let ci = 0, di = 0;
+  while (ci < creditors.length && di < debtors.length) {
+    const c = creditors[ci], d = debtors[di];
+    const amount = Math.min(c.amount, d.amount);
+    txs.push({ from: d.id, to: c.id, amount: Math.round(amount * 100) / 100 });
+    c.amount -= amount;
+    d.amount -= amount;
+    if (c.amount < 0.005) ci++;
+    if (d.amount < 0.005) di++;
   }
   return txs;
 }
 
-function renderSettle(){
-  const summaryEl=document.getElementById('settle-summary');
-  const txListEl=document.getElementById('tx-list');
-  const poolTotal=state.members.reduce((s,m)=>s+(state.pool[m.id]||0),0);
-  const hasData=state.members.length>0&&(state.expenses.length>0||poolTotal>0);
-  if(!hasData){summaryEl.innerHTML='<div class="empty-state" style="grid-column:1/-1"><div class="icon">📊</div>請先新增費用或公費</div>';txListEl.innerHTML='<li class="empty-state"><div class="icon">✅</div>暫無需要付款的交易</li>';return;}
-  const{bal,expBal,poolBal}=computeBalances();const txs=minimizeTransactions(bal);
-  summaryEl.innerHTML='';
-  state.members.forEach(m=>{
-    const b=Math.round((bal[m.id]||0)*100)/100;
-    const eb=Math.round((expBal[m.id]||0)*100)/100;
-    const pb=Math.round((poolBal[m.id]||0)*100)/100;
-    const cls=b>0.005?'creditor':b<-0.005?'debtor':'zero';
-    const label=b>0.005?'應收':b<-0.005?'應付':'已結清';
-    const sign=b>0?'+':'';
-    let breakdown='';
-    if(state.expenses.length>0&&poolTotal>0){breakdown=`<div class="s-breakdown">費用：${eb>0?'+':''}$${fmt(Math.abs(eb))}<br>公費池：${pb>0?'+':''}$${fmt(Math.abs(pb))}</div>`;}
-    const el=document.createElement('div');el.className=`settle-person ${cls}`;
-    el.innerHTML=`${avatar(m,32).replace('>','style="margin:0 auto 6px">')}<div class="s-name">${escHtml(m.name)}</div><div class="s-bal">${sign}$${fmt(Math.abs(b))}</div><div class="s-label">${label}</div>${breakdown}`;
+function renderSettle() {
+  const summaryEl = document.getElementById('settle-summary');
+  const txListEl = document.getElementById('tx-list');
+  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0);
+  if (!hasData) {
+    summaryEl.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📊</div>請先新增費用或公費</div>';
+    txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>暫無需要付款的交易</li>';
+    return;
+  }
+  const { bal, expBal, poolBal } = computeBalances();
+  const txs = minimizeTransactions(bal);
+  summaryEl.innerHTML = '';
+  state.members.forEach(m => {
+    const id = String(m.id);
+    const b = Math.round((bal[id] || 0) * 100) / 100;
+    const eb = Math.round((expBal[id] || 0) * 100) / 100;
+    const pb = Math.round((poolBal[id] || 0) * 100) / 100;
+    const cls = b > 0.005 ? 'creditor' : b < -0.005 ? 'debtor' : 'zero';
+    const label = b > 0.005 ? '應收' : b < -0.005 ? '應付' : '已結清';
+    const sign = b > 0 ? '+' : '';
+    let breakdown = '';
+    if (state.expenses.length > 0 && poolTotal > 0) {
+      breakdown = `<div class="s-breakdown">費用：${eb > 0 ? '+' : ''}$${fmt(Math.abs(eb))}<br>公費池：${pb > 0 ? '+' : ''}$${fmt(Math.abs(pb))}</div>`;
+    }
+    const el = document.createElement('div');
+    el.className = `settle-person ${cls}`;
+    el.innerHTML = `${avatar(m, 32).replace('>', ' style="margin:0 auto 6px">')}<div class="s-name">${escHtml(m.name)}</div><div class="s-bal">${sign}$${fmt(Math.abs(b))}</div><div class="s-label">${label}</div>${breakdown}`;
     summaryEl.appendChild(el);
   });
-  if(!txs.length){txListEl.innerHTML='<li class="empty-state"><div class="icon">✅</div>所有人已結清，無需轉帳！</li>';return;}
-  txListEl.innerHTML='';
-  txs.forEach(tx=>{
-    const from=state.members.find(m=>m.id===tx.from);const to=state.members.find(m=>m.id===tx.to);
-    const li=document.createElement('li');li.className='tx-item';
-    li.innerHTML=`${from?avatar(from,28):''}<span class="tx-from">${from?escHtml(from.name):'?'}</span><span class="tx-arrow">→</span><span class="tx-to">${to?escHtml(to.name):'?'}</span>${to?avatar(to,28):''}<span class="tx-amount">$${fmt(tx.amount)}</span>`;
+  if (!txs.length) {
+    txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>所有人已結清，無需轉帳！</li>';
+    return;
+  }
+  txListEl.innerHTML = '';
+  txs.forEach(tx => {
+    const from = state.members.find(m => String(m.id) === String(tx.from));
+    const to = state.members.find(m => String(m.id) === String(tx.to));
+    const li = document.createElement('li');
+    li.className = 'tx-item';
+    li.innerHTML = `${from ? avatar(from, 28) : ''}<span class="tx-from">${from ? escHtml(from.name) : '?'}</span><span class="tx-arrow">→</span><span class="tx-to">${to ? escHtml(to.name) : '?'}</span>${to ? avatar(to, 28) : ''}<span class="tx-amount">$${fmt(tx.amount)}</span>`;
     txListEl.appendChild(li);
   });
 }
 
-function copyResult(){
-  if(!state.expenses.length&&Object.values(state.pool).every(v=>v===0)){toast('沒有資料可複製');return;}
-  const{bal}=computeBalances();const txs=minimizeTransactions(bal);
-  const title=state.billTitle||'分帳結算';
-  const expTotal=state.expenses.reduce((s,e)=>s+e.amount,0);
-  const poolTotal=state.members.reduce((s,m)=>s+(state.pool[m.id]||0),0);
-  let text=`【${title}】\n`;
-  if(expTotal>0)text+=`費用合計：$${fmt(expTotal)}（${state.expenses.length} 筆）\n`;
-  if(poolTotal>0)text+=`公費池合計：$${fmt(poolTotal)}（每人 $${fmt(poolTotal/state.members.length)}）\n`;
-  text+=`\n各人結餘：\n`;
-  state.members.forEach(m=>{const b=Math.round((bal[m.id]||0)*100)/100;text+=`  ${m.name}：${b>=0?'+':''}$${fmt(Math.abs(b))}\n`;});
-  text+=`\n轉帳清單：\n`;
-  if(!txs.length){text+=`  所有人已結清！\n`;}
-  else{txs.forEach(tx=>{const f=state.members.find(m=>m.id===tx.from)?.name||'?';const t=state.members.find(m=>m.id===tx.to)?.name||'?';text+=`  ${f} → ${t}：$${fmt(tx.amount)}\n`;});}
-  navigator.clipboard.writeText(text).then(()=>toast('已複製到剪貼簿')).catch(()=>toast('複製失敗，請手動複製'));
+function copyResult() {
+  if (!state.expenses.length && Object.values(state.pool).every(v => v === 0)) {
+    toast('沒有資料可複製');
+    return;
+  }
+  const { bal } = computeBalances();
+  const txs = minimizeTransactions(bal);
+  const title = state.billTitle || '分帳結算';
+  const expTotal = state.expenses.reduce((s, e) => s + e.amount, 0);
+  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  let text = `【${title}】\n`;
+  if (expTotal > 0) text += `費用合計：$${fmt(expTotal)}（${state.expenses.length} 筆）\n`;
+  if (poolTotal > 0) text += `公費池合計：$${fmt(poolTotal)}（每人 $${fmt(poolTotal / state.members.length)}）\n`;
+  text += `\n各人結餘：\n`;
+  state.members.forEach(m => {
+    const b = Math.round((bal[m.id] || 0) * 100) / 100;
+    text += `  ${m.name}：${b >= 0 ? '+' : ''}$${fmt(Math.abs(b))}\n`;
+  });
+  text += `\n轉帳清單：\n`;
+  if (!txs.length) {
+    text += `  所有人已結清！\n`;
+  } else {
+    txs.forEach(tx => {
+      const f = state.members.find(m => String(m.id) === String(tx.from))?.name || '?';
+      const t = state.members.find(m => String(m.id) === String(tx.to))?.name || '?';
+      text += `  ${f} → ${t}：$${fmt(tx.amount)}\n`;
+    });
+  }
+  copyText(text, '已複製結算結果！');
 }
 
-function clearAll(){
-  if(!confirm('確定要清除所有資料嗎？此操作無法復原。'))return;
-  state={billTitle:'',members:[],expenses:[],pool:{}};nextMemberId=1;nextExpenseId=1;selectedParticipants.clear();
-  document.getElementById('bill-title').value='';save();renderMembers();renderExpenses();toast('已清除所有資料');
+function clearAll() {
+  const msg = activeRoomId
+    ? '確定要清除線上房間的所有資料嗎？所有連線中的成員資料都會被清空。'
+    : '確定要清除所有資料嗎？此操作無法復原。';
+  if (!confirm(msg)) return;
+  state = { billTitle: '', members: [], expenses: [], pool: {} };
+  selectedParticipants.clear();
+  document.getElementById('bill-title').value = '';
+  save(true);
+  renderMembers();
+  renderExpenses();
+  toast('已清除所有資料');
 }
 
-load();
-document.getElementById('bill-title').value=state.billTitle||'';
-renderMembers();
-renderExpenses();
+/* =========================================================
+   線上即時共編 (Firebase Realtime Database & Presence)
+   ========================================================= */
+
+function getFbConfig() {
+  try {
+    const raw = localStorage.getItem('splitapp_fb_config');
+    if (raw) return JSON.parse(raw);
+  } catch(_) {}
+  return DEFAULT_FB_CONFIG;
+}
+
+function initFirebase(customCfg = null) {
+  if (typeof firebase === 'undefined') {
+    toast('⚠️ Firebase SDK 未載入，請確認連線');
+    return false;
+  }
+  try {
+    const cfg = customCfg || getFbConfig();
+    if (!firebase.apps.length) {
+      firebase.initializeApp(cfg);
+    }
+    db = firebase.database();
+    return true;
+  } catch (e) {
+    console.error('Firebase init error:', e);
+    toast('Firebase 設定錯誤：' + e.message);
+    return false;
+  }
+}
+
+function setCollabStatus(status, text) {
+  const dot = document.getElementById('collab-status-dot');
+  const txt = document.getElementById('collab-status-text');
+  dot.className = 'collab-dot ' + status;
+  txt.textContent = text;
+}
+
+function updateCollabBarUI() {
+  const roomBadge = document.getElementById('collab-room-badge');
+  const presenceBadge = document.getElementById('collab-presence-badge');
+  const btnStart = document.getElementById('btn-collab-start');
+  const btnShare = document.getElementById('btn-collab-share');
+  const btnLeave = document.getElementById('btn-collab-leave');
+  const roomIdDisplay = document.getElementById('collab-room-id');
+
+  if (activeRoomId) {
+    roomBadge.style.display = 'inline-flex';
+    presenceBadge.style.display = 'inline-flex';
+    btnStart.style.display = 'none';
+    btnShare.style.display = 'inline-flex';
+    btnLeave.style.display = 'inline-flex';
+    roomIdDisplay.textContent = activeRoomId;
+    setCollabStatus('online', '線上共編中');
+  } else {
+    roomBadge.style.display = 'none';
+    presenceBadge.style.display = 'none';
+    btnStart.style.display = 'inline-flex';
+    btnShare.style.display = 'none';
+    btnLeave.style.display = 'none';
+    setCollabStatus('local', '本機模式');
+  }
+}
+
+function updateUrlRoom(roomId) {
+  const url = new URL(window.location);
+  if (roomId) {
+    url.searchParams.set('room', roomId);
+  } else {
+    url.searchParams.delete('room');
+    url.searchParams.delete('cfg');
+  }
+  window.history.replaceState({}, '', url);
+}
+
+function getShareUrl() {
+  const url = new URL(window.location.origin + window.location.pathname);
+  if (activeRoomId) {
+    url.searchParams.set('room', activeRoomId);
+  }
+  return url.toString();
+}
+
+function joinRoom(roomId, uploadCurrent = false) {
+  if (!initFirebase()) return;
+  if (!roomId) return;
+
+  // Cleanup prior listeners
+  cleanupRoomListeners();
+
+  activeRoomId = roomId;
+  activeRoomRef = db.ref('rooms/' + roomId);
+  updateUrlRoom(roomId);
+  updateCollabBarUI();
+
+  // Presence & connection listener
+  setupPresence();
+
+  // Listen to remote data changes
+  const dataRef = activeRoomRef.child('data');
+  const dataHandler = dataRef.on('value', snap => {
+    const val = snap.val();
+    if (!val) {
+      if (uploadCurrent || state.members.length > 0) {
+        save(true);
+        toast(`🎉 房間 ${roomId} 已建立並同步帳單！`);
+      }
+    } else {
+      applyRemoteData(val, val.updatedBy);
+    }
+  });
+  roomListeners.push(() => dataRef.off('value', dataHandler));
+
+  toast(`已連線至房間：${roomId}`);
+}
+
+function applyRemoteData(data, updatedBy) {
+  if (!data) return;
+
+  // Check if actually changed
+  const curJson = JSON.stringify({
+    t: state.billTitle || '',
+    m: state.members || [],
+    e: state.expenses || [],
+    p: state.pool || {}
+  });
+  const newJson = JSON.stringify({
+    t: data.billTitle || '',
+    m: data.members || [],
+    e: data.expenses || [],
+    p: data.pool || {}
+  });
+  if (curJson === newJson) return;
+
+  isRemoteUpdating = true;
+  try {
+    state.billTitle = data.billTitle || '';
+    state.members = Array.isArray(data.members) ? data.members : [];
+    state.expenses = Array.isArray(data.expenses) ? data.expenses : [];
+    state.pool = data.pool || {};
+
+    // Cache locally
+    save(false);
+
+    // Update Title if not actively being typed
+    const titleInput = document.getElementById('bill-title');
+    if (document.activeElement !== titleInput) {
+      titleInput.value = state.billTitle || '';
+    }
+
+    renderMembers();
+    renderExpenses();
+
+    // Preserve active form input focus
+    const formInputIds = ['exp-name', 'exp-amount', 'exp-payer'];
+    const isTypingExpense = formInputIds.includes(document.activeElement?.id) || document.activeElement?.id?.startsWith('custom-input-');
+    if (!isTypingExpense) {
+      renderExpenseForm();
+    }
+
+    const poolInputs = document.activeElement?.id?.startsWith('pool-input-');
+    if (!poolInputs) {
+      renderPoolTab();
+    }
+
+    renderSettle();
+
+    if (updatedBy && updatedBy !== myName) {
+      toast(`🔄 已同步最新變更（由 ${updatedBy} 更新）`);
+    }
+  } finally {
+    isRemoteUpdating = false;
+  }
+}
+
+function setupPresence() {
+  if (!db || !activeRoomId) return;
+
+  presenceRef = activeRoomRef.child('presence/' + myClientId);
+  const connRef = db.ref('.info/connected');
+
+  const connHandler = connRef.on('value', snap => {
+    if (snap.val() === true) {
+      setCollabStatus('online', '線上共編中');
+      presenceRef.onDisconnect().remove();
+      presenceRef.set({
+        name: myName || '訪客',
+        joinedAt: firebase.database.ServerValue.TIMESTAMP
+      });
+    } else {
+      setCollabStatus('connecting', '重新連線中...');
+    }
+  });
+  roomListeners.push(() => connRef.off('value', connHandler));
+
+  const presencesRef = activeRoomRef.child('presence');
+  const presHandler = presencesRef.on('value', snap => {
+    const users = snap.val() || {};
+    renderPresenceList(users);
+  });
+  roomListeners.push(() => presencesRef.off('value', presHandler));
+}
+
+function renderPresenceList(usersObj) {
+  const container = document.getElementById('active-users-list');
+  const countBadge = document.getElementById('collab-presence-count');
+
+  const users = Object.entries(usersObj || {}).map(([cid, u]) => ({
+    cid,
+    name: u.name || '訪客',
+    isMe: cid === myClientId
+  }));
+
+  const count = users.length;
+  if (countBadge) countBadge.textContent = count;
+
+  if (!container) return;
+  if (users.length === 0) {
+    container.innerHTML = '<span style="font-size:0.75rem;color:#999">暫無在線成員</span>';
+    return;
+  }
+
+  container.innerHTML = users.map(u => `
+    <span class="active-user-pill ${u.isMe ? 'is-me' : ''}">
+      <span class="online-indicator"></span>
+      ${escHtml(u.name)}${u.isMe ? ' (你)' : ''}
+    </span>
+  `).join('');
+}
+
+function cleanupRoomListeners() {
+  roomListeners.forEach(unsub => { try { unsub(); } catch(_) {} });
+  roomListeners = [];
+  if (presenceRef) {
+    try { presenceRef.remove(); } catch(_) {}
+    presenceRef = null;
+  }
+}
+
+function leaveRoom(confirmPrompt = true) {
+  if (confirmPrompt && !confirm('確定要退出線上房間嗎？退出後將切換為本機模式。')) return;
+
+  cleanupRoomListeners();
+  activeRoomId = null;
+  activeRoomRef = null;
+
+  updateUrlRoom(null);
+  updateCollabBarUI();
+
+  // Reload local copy
+  load();
+  document.getElementById('bill-title').value = state.billTitle || '';
+  renderMembers();
+  renderExpenses();
+  toast('已切換為本機離線模式');
+  closeCollabModal();
+}
+
+function createNewRoom() {
+  const keepData = document.getElementById('check-keep-local-data').checked;
+  if (!keepData) {
+    state = { billTitle: '', members: [], expenses: [], pool: {} };
+    document.getElementById('bill-title').value = '';
+  }
+  // Generate random room code matching security rule (length 6..64)
+  const newRoomId = 'bs_' + Math.random().toString(36).slice(2, 8);
+  joinRoom(newRoomId, keepData);
+  closeCollabModal();
+  setTimeout(() => openShareModal(), 300);
+}
+
+function handleJoinInput() {
+  let val = document.getElementById('join-room-input').value.trim();
+  if (!val) { toast('請輸入房號或連結'); return; }
+
+  // Extract ?room= if full URL pasted
+  try {
+    if (val.includes('http') || val.includes('?')) {
+      const url = new URL(val, window.location.origin);
+      const r = url.searchParams.get('room');
+      if (r) val = r;
+      const cfg = url.searchParams.get('cfg');
+      if (cfg) {
+        const decoded = b64decode(cfg);
+        if (decoded && decoded.databaseURL) {
+          localStorage.setItem('splitapp_fb_config', JSON.stringify(decoded));
+        }
+      }
+    }
+  } catch(_) {}
+
+  if (val.length < 4) { toast('房號格式不正確'); return; }
+  joinRoom(val, false);
+  closeCollabModal();
+}
+
+/* ── QR Code Rendering ── */
+function renderQrCode(url) {
+  const box = document.getElementById('qr-code-box');
+  if (!box) return;
+  box.innerHTML = '';
+  if (typeof QRCode !== 'undefined') {
+    try {
+      new QRCode(box, {
+        text: url,
+        width: 150,
+        height: 150,
+        colorDark: '#2e7d32',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      return;
+    } catch(e) {
+      console.warn('QR Code generation error:', e);
+    }
+  }
+  box.innerHTML = '<div style="font-size:0.75rem;color:#888;padding:20px;text-align:center">📱 請直接複製上方邀請連結發送給好友</div>';
+}
+
+function copyShareLink() {
+  const input = document.getElementById('share-link-input');
+  copyText(input.value, '已複製共編連結！傳給好友即可加入');
+}
+
+/* ── Modal & Nickname ── */
+function openCollabModal(tab = 'share') {
+  const modal = document.getElementById('collab-modal');
+  modal.classList.add('active');
+  switchModalTab(tab);
+}
+
+function closeCollabModal() {
+  document.getElementById('collab-modal').classList.remove('active');
+}
+
+function openShareModal() {
+  openCollabModal('share');
+}
+
+function switchModalTab(tab) {
+  ['share', 'rooms', 'settings'].forEach(t => {
+    const btn = document.getElementById(`mtab-btn-${t}`);
+    const pane = document.getElementById(`mpane-${t}`);
+    if (btn) btn.classList.toggle('active', t === tab);
+    if (pane) pane.classList.toggle('active', t === tab);
+  });
+
+  if (tab === 'share') {
+    const activeView = document.getElementById('share-active-view');
+    const emptyView = document.getElementById('share-empty-view');
+    if (activeRoomId) {
+      activeView.style.display = 'block';
+      emptyView.style.display = 'none';
+      document.getElementById('share-modal-room-id').textContent = activeRoomId;
+      const shareUrl = getShareUrl();
+      document.getElementById('share-link-input').value = shareUrl;
+      renderQrCode(shareUrl);
+    } else {
+      activeView.style.display = 'none';
+      emptyView.style.display = 'block';
+    }
+  }
+
+  if (tab === 'settings') {
+    document.getElementById('my-name-input').value = myName;
+    const curCfg = getFbConfig();
+    document.getElementById('custom-fb-cfg').value = JSON.stringify(curCfg, null, 2);
+  }
+}
+
+function promptMyName() {
+  const current = myName || '';
+  const input = prompt('請輸入你的暱稱（標記在線成員及編輯紀錄）：', current);
+  if (input !== null) {
+    myName = input.trim();
+    localStorage.setItem('splitapp_my_name', myName);
+    updateUserNameDisplay();
+    if (presenceRef) {
+      presenceRef.update({ name: myName || '訪客' });
+    }
+    toast('暱稱已更新為：' + (myName || '訪客'));
+  }
+}
+
+function saveMyName() {
+  const val = document.getElementById('my-name-input').value.trim();
+  myName = val;
+  localStorage.setItem('splitapp_my_name', myName);
+  updateUserNameDisplay();
+  if (presenceRef) {
+    presenceRef.update({ name: myName || '訪客' });
+  }
+  toast('暱稱已儲存！');
+  closeCollabModal();
+}
+
+function updateUserNameDisplay() {
+  const el = document.getElementById('header-user-name');
+  if (el) el.textContent = myName || '訪客';
+}
+
+function saveCustomFbConfig() {
+  const raw = document.getElementById('custom-fb-cfg').value.trim();
+  try {
+    const cfg = JSON.parse(raw);
+    if (!cfg.databaseURL) { toast('設定需包含 databaseURL'); return; }
+    localStorage.setItem('splitapp_fb_config', JSON.stringify(cfg));
+    toast('已儲存自訂 Firebase 設定，重新連線中...');
+    if (activeRoomId) joinRoom(activeRoomId);
+  } catch(e) {
+    toast('JSON 格式錯誤：' + e.message);
+  }
+}
+
+function resetFbConfig() {
+  localStorage.removeItem('splitapp_fb_config');
+  document.getElementById('custom-fb-cfg').value = JSON.stringify(DEFAULT_FB_CONFIG, null, 2);
+  toast('已重設為預設 Firebase 設定');
+}
+
+/* ── Initialization ── */
+function init() {
+  load();
+  document.getElementById('bill-title').value = state.billTitle || '';
+  updateUserNameDisplay();
+  renderMembers();
+  renderExpenses();
+
+  // Check URL parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const cfgParam = urlParams.get('cfg');
+  if (cfgParam) {
+    const decoded = b64decode(cfgParam);
+    if (decoded && decoded.databaseURL) {
+      localStorage.setItem('splitapp_fb_config', JSON.stringify(decoded));
+    }
+  }
+
+  const roomParam = urlParams.get('room');
+  if (roomParam) {
+    joinRoom(roomParam, false);
+  } else {
+    updateCollabBarUI();
+  }
+}
+
+window.state = state;
+window.computeBalances = computeBalances;
+window.minimizeTransactions = minimizeTransactions;
+window.joinRoom = joinRoom;
+window.leaveRoom = leaveRoom;
+
+init();
 </script>
 </body>
 </html>

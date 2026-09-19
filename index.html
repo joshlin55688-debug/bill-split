@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>分帳程式 - 線上即時共編</title>
+  <script>
+    // Forward query params to split.html
+    const search = window.location.search || '';
+    const hash = window.location.hash || '';
+    window.location.replace('split.html' + search + hash);
+  </script>
+</head>
+<body>
+  <p>正在前往分帳程式... <a href="split.html">請點此</a></p>
+</body>
+</html>

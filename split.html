@@ -637,8 +637,21 @@ function b64decode(s) {
 }
 
 /* ── UID generator ── */
+let _uidSeq = 0;
 function uid(prefix = '') {
-  return (prefix ? prefix + '_' : '') + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+  _uidSeq = (_uidSeq + 1) % 0x1000000;
+  const seqPart = _uidSeq.toString(36).padStart(4, '0');
+  const timePart = Date.now().toString(36);
+  let randPart = '';
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try {
+      randPart = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+    } catch(_) {}
+  }
+  if (!randPart) {
+    randPart = Math.random().toString(36).slice(2, 10);
+  }
+  return (prefix ? prefix + '_' : '') + timePart + '_' + seqPart + '_' + randPart;
 }
 
 function generateRoomId() {
@@ -1799,6 +1812,7 @@ window.save = save;
 window.loadLocalDraft = loadLocalDraft;
 window.loadRoomCache = loadRoomCache;
 window.sanitizeState = sanitizeState;
+window.uid = uid;
 window.generateRoomId = generateRoomId;
 window.getActiveRoomId = () => activeRoomId;
 window.setActiveRoomId = (r) => { activeRoomId = r; };

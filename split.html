@@ -179,6 +179,7 @@
     .expense-meta { font-size:0.75rem; color:var(--text-muted); margin-top:4px; }
     .expense-participants { font-size:0.72rem; color:#555; margin-top:4px; }
     .expense-custom-tag { display:inline-block; background:#fff3e0; color:var(--accent); border:1px solid #ffe0b2; border-radius:10px; padding:1px 7px; font-size:0.68rem; font-weight:700; margin-left:4px; }
+    .expense-pool-tag { display:inline-block; background:var(--pool-bg); color:var(--pool); border:1px solid var(--pool-border); border-radius:10px; padding:1px 7px; font-size:0.68rem; font-weight:700; margin-left:4px; }
 
     /* ── Settlement ── */
     .settle-summary { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:10px; margin-bottom:16px; }
@@ -354,7 +355,9 @@
     </div>
     <div class="pool-summary" id="pool-summary" style="display:none">
       <span>📥 總公費：<strong id="pool-total-display">$0</strong></span>
-      <span>👤 人均應繳：<strong id="pool-per-display">$0</strong></span>
+      <span id="pool-spent-container" style="display:none">💸 公費支出：<strong id="pool-spent-display">$0</strong></span>
+      <span id="pool-remain-container" style="display:none">💰 公費剩餘：<strong id="pool-remain-display">$0</strong></span>
+      <span id="pool-per-container">👤 <span id="pool-per-label">人均應繳</span>：<strong id="pool-per-display">$0</strong></span>
       <span>👥 分攤人數：<strong id="pool-members-display">0</strong> 人</span>
     </div>
   </div>
@@ -714,13 +717,14 @@ function sanitizeState(data) {
   });
   const expenses = toArray(data.expenses).map(e => {
     if (!e || typeof e !== 'object') return null;
+    const payerId = String(e.payerId || '');
     return {
       id: String(e.id || uid('e')),
       name: String(e.name || '費用'),
       amount: Number(e.amount) || 0,
-      payerId: String(e.payerId || ''),
+      payerId: payerId === 'pool' ? 'pool' : payerId,
       splitMode: e.splitMode === 'custom' ? 'custom' : 'equal',
-      participantIds: toArray(e.participantIds).map(String),
+      participantIds: toArray(e.participantIds).map(String).filter(id => id !== 'pool'),
       customSplits: (e.customSplits && typeof e.customSplits === 'object') ? e.customSplits : {}
     };
   }).filter(Boolean);
@@ -1001,23 +1005,46 @@ function updatePool(memberId, rawVal) {
 }
 
 function updatePoolSummary() {
-  const total = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
+  const { poolBal, poolTotal, poolExpTotal, poolRemain } = computeBalances();
   const n = state.members.length;
-  const per = n > 0 ? total / n : 0;
+  const per = n > 0 ? poolTotal / n : 0;
   state.members.forEach(m => {
-    const diff = (state.pool[m.id] || 0) - per;
+    const diff = poolBal[m.id] !== undefined ? poolBal[m.id] : ((state.pool[m.id] || 0) - per);
     const el = document.getElementById('pool-share-' + m.id);
     if (!el) return;
-    if (total === 0) { el.textContent = ''; }
+    if (poolTotal === 0 && poolExpTotal === 0) { el.textContent = ''; }
     else if (Math.abs(diff) < 0.005) { el.textContent = '✅ 已平衡'; el.style.color = '#43a047'; }
     else if (diff > 0) { el.textContent = `應收 $${fmt(diff)}`; el.style.color = 'var(--green)'; }
     else { el.textContent = `應補 $${fmt(-diff)}`; el.style.color = 'var(--red)'; }
   });
   const summary = document.getElementById('pool-summary');
-  if (total > 0) {
+  if (poolTotal > 0 || poolExpTotal > 0) {
     summary.style.display = 'flex';
-    document.getElementById('pool-total-display').textContent = '$' + fmt(total);
-    document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+    document.getElementById('pool-total-display').textContent = '$' + fmt(poolTotal);
+
+    const spentEl = document.getElementById('pool-spent-container');
+    const remainEl = document.getElementById('pool-remain-container');
+    const perLabel = document.getElementById('pool-per-label');
+
+    if (spentEl && remainEl) {
+      if (poolExpTotal > 0) {
+        spentEl.style.display = 'inline';
+        remainEl.style.display = 'inline';
+        document.getElementById('pool-spent-display').textContent = '$' + fmt(poolExpTotal);
+        const remainText = poolRemain >= 0 ? '$' + fmt(poolRemain) : '-$' + fmt(Math.abs(poolRemain)) + ' (赤字)';
+        document.getElementById('pool-remain-display').textContent = remainText;
+        if (perLabel) perLabel.textContent = poolRemain >= 0 ? '人均剩餘' : '人均差額';
+        const perRemain = n > 0 ? poolRemain / n : 0;
+        document.getElementById('pool-per-display').textContent = (perRemain >= 0 ? '$' : '-$') + fmt(Math.abs(perRemain));
+      } else {
+        spentEl.style.display = 'none';
+        remainEl.style.display = 'none';
+        if (perLabel) perLabel.textContent = '人均應繳';
+        document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+      }
+    } else {
+      document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+    }
     document.getElementById('pool-members-display').textContent = n;
   } else {
     summary.style.display = 'none';
@@ -1055,16 +1082,35 @@ function updateCustomTotal() {
   document.getElementById('custom-total-display').textContent = '$' + fmt(total);
 }
 
+/* ── Payer Dropdown Helper ── */
+function renderPayerOptions(selectEl, selectedVal) {
+  if (!selectEl) return;
+  const curVal = selectedVal !== undefined ? selectedVal : selectEl.value;
+  let html = '';
+  if (state.members.length) {
+    html += state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('');
+    html += `<option value="pool">🏦 公費</option>`;
+  } else {
+    html = '<option value="">（請先新增成員）</option>';
+  }
+  selectEl.innerHTML = html;
+  if (curVal === 'pool') {
+    selectEl.value = 'pool';
+  } else if (state.members.some(m => String(m.id) === String(curVal))) {
+    selectEl.value = String(curVal);
+  } else if (curVal && curVal !== '') {
+    const opt = document.createElement('option');
+    opt.value = curVal;
+    opt.textContent = '（已刪除成員）';
+    selectEl.appendChild(opt);
+    selectEl.value = String(curVal);
+  }
+}
+
 /* ── Expenses ── */
 function renderExpenseForm() {
   const payerSel = document.getElementById('exp-payer');
-  const prevVal = payerSel.value;
-  payerSel.innerHTML = state.members.length
-    ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
-    : '<option value="">（請先新增成員）</option>';
-  if (prevVal && state.members.some(m => String(m.id) === String(prevVal))) {
-    payerSel.value = prevVal;
-  }
+  renderPayerOptions(payerSel, payerSel.value);
 
   const chips = document.getElementById('exp-participants');
   chips.innerHTML = '';
@@ -1112,13 +1158,15 @@ function addExpense() {
   if (!name) { toast('請輸入費用名稱'); return; }
   if (!payerId) { toast('請選擇付款人'); return; }
 
+  const isPool = (payerId === 'pool');
+
   if (currentSplitMode === 'equal') {
     const amount = parseFloat(document.getElementById('exp-amount').value);
     if (!amount || amount <= 0) { toast('請輸入有效金額'); return; }
     const participantIds = selectedParticipants.size > 0
       ? [...selectedParticipants]
       : state.members.map(m => String(m.id));
-    if (!participantIds.includes(String(payerId))) participantIds.push(String(payerId));
+    if (!isPool && !participantIds.includes(String(payerId))) participantIds.push(String(payerId));
     state.expenses.push({ id: uid('e'), name, amount, payerId, splitMode: 'equal', participantIds, customSplits: {} });
   } else {
     const customSplits = {};
@@ -1138,6 +1186,7 @@ function addExpense() {
   save(true);
   renderExpenses();
   renderExpenseForm();
+  renderPoolTab();
   renderSettle();
   toast(`已新增：${name}`);
 }
@@ -1150,6 +1199,7 @@ function removeExpense(id) {
   state.expenses = state.expenses.filter(e => String(e.id) !== strId);
   save(true);
   renderExpenses();
+  renderPoolTab();
   renderSettle();
   toast('已刪除費用');
 }
@@ -1170,19 +1220,7 @@ function openEditExpenseModal(id) {
   document.getElementById('edit-exp-name').value = exp.name || '';
 
   const payerSel = document.getElementById('edit-exp-payer');
-  payerSel.innerHTML = state.members.length
-    ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
-    : '<option value="">（請先新增成員）</option>';
-
-  if (state.members.some(m => String(m.id) === String(exp.payerId))) {
-    payerSel.value = String(exp.payerId);
-  } else if (exp.payerId) {
-    const opt = document.createElement('option');
-    opt.value = exp.payerId;
-    opt.textContent = '（已刪除成員）';
-    payerSel.appendChild(opt);
-    payerSel.value = String(exp.payerId);
-  }
+  renderPayerOptions(payerSel, exp.payerId);
 
   // Pre-fill amount field unconditionally to prevent stale values from previous modals
   document.getElementById('edit-exp-amount').value = (exp.amount !== undefined && exp.amount !== null) ? exp.amount : '';
@@ -1193,7 +1231,7 @@ function openEditExpenseModal(id) {
   const curMemberIds = state.members.map(m => String(m.id));
 
   if (editCurrentSplitMode === 'equal') {
-    const uniquePIds = [...new Set(toArray(exp.participantIds).map(String))];
+    const uniquePIds = [...new Set(toArray(exp.participantIds).map(String).filter(pid => pid !== 'pool'))];
     const isAll = curMemberIds.length > 0 &&
                   uniquePIds.length === curMemberIds.length &&
                   curMemberIds.every(mid => uniquePIds.includes(mid));
@@ -1419,7 +1457,8 @@ function saveExpenseEdit() {
     participantIds = editSelectedParticipants.size > 0
       ? [...editSelectedParticipants]
       : state.members.map(m => String(m.id));
-    if (!participantIds.includes(String(payerId))) {
+    const isPool = (payerId === 'pool');
+    if (!isPool && !participantIds.includes(String(payerId))) {
       participantIds.push(String(payerId));
     }
     customSplits = {};
@@ -1452,6 +1491,7 @@ function saveExpenseEdit() {
 
   save(true);
   renderExpenses();
+  renderPoolTab();
   renderSettle();
   closeEditExpenseModal();
   toast(`已更新：${name}`);
@@ -1462,13 +1502,7 @@ function refreshEditModalMembers() {
   if (!modal || !modal.classList.contains('active')) return;
   const payerSel = document.getElementById('edit-exp-payer');
   if (payerSel) {
-    const curPayer = payerSel.value;
-    payerSel.innerHTML = state.members.length
-      ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
-      : '<option value="">（請先新增成員）</option>';
-    if (state.members.some(m => String(m.id) === curPayer)) {
-      payerSel.value = curPayer;
-    }
+    renderPayerOptions(payerSel, payerSel.value);
   }
   if (editCurrentSplitMode === 'equal') {
     renderEditParticipants();
@@ -1488,7 +1522,8 @@ function renderExpenses() {
   }
   list.innerHTML = '';
   [...state.expenses].reverse().forEach(e => {
-    const payer = state.members.find(m => String(m.id) === String(e.payerId));
+    const isPool = String(e.payerId) === 'pool';
+    const payer = isPool ? null : state.members.find(m => String(m.id) === String(e.payerId));
     const isCustom = e.splitMode === 'custom';
     let partsText = '';
     if (isCustom) {
@@ -1507,8 +1542,8 @@ function renderExpenses() {
     item.innerHTML = `
       <div class="expense-header">
         <div style="flex:1;min-width:0">
-          <div class="expense-name">${escHtml(e.name)}${isCustom ? '<span class="expense-custom-tag">自訂</span>' : ''}</div>
-          <div class="expense-meta">由 <strong style="color:${payer ? memberColor(payer.id) : '#888'}">${payer ? escHtml(payer.name) : '（已刪除）'}</strong> 付款</div>
+          <div class="expense-name">${escHtml(e.name)}${isCustom ? '<span class="expense-custom-tag">自訂</span>' : ''}${isPool ? '<span class="expense-pool-tag">公費</span>' : ''}</div>
+          <div class="expense-meta">由 <strong style="color:${isPool ? 'var(--pool)' : (payer ? memberColor(payer.id) : '#888')}">${isPool ? '🏦 公費' : (payer ? escHtml(payer.name) : '（已刪除）')}</strong> 付款</div>
           <div class="expense-participants">分攤：${partsText}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
@@ -1532,53 +1567,84 @@ function computeBalances(s = state) {
   const expenses = toArray(s.expenses);
   const pool = (s.pool && typeof s.pool === 'object') ? s.pool : {};
   const bal = {}, expBal = {}, poolBal = {};
+  const poolExpCons = {};
+
   members.forEach(m => {
     if (!m) return;
     const id = String(m.id);
     bal[id] = 0; expBal[id] = 0; poolBal[id] = 0;
+    poolExpCons[id] = 0;
   });
+
+  let poolExpTotal = 0;
 
   expenses.forEach(e => {
     if (!e) return;
-    const payerId = String(e.payerId);
-    if (bal[payerId] === undefined) return; // Skip orphaned expense if payer deleted
+    const payerId = String(e.payerId || '');
+    const isPool = (payerId === 'pool');
+
+    if (!isPool && bal[payerId] === undefined) return; // Skip orphaned expense if payer deleted
 
     if (e.splitMode === 'custom') {
-      bal[payerId] += e.amount;
-      expBal[payerId] += e.amount;
-      Object.entries(e.customSplits || {}).forEach(([id, amt]) => {
+      const splits = e.customSplits && typeof e.customSplits === 'object' ? e.customSplits : {};
+      let expTotal = 0;
+      Object.entries(splits).forEach(([id, amt]) => {
         const mid = String(id);
-        if (bal[mid] !== undefined) {
-          bal[mid] -= amt;
-          expBal[mid] -= amt;
+        const val = Number(amt) || 0;
+        if (val > 0 && bal[mid] !== undefined) {
+          expTotal += val;
+          if (isPool) {
+            poolExpCons[mid] += val;
+          } else {
+            bal[mid] -= val;
+            expBal[mid] -= val;
+          }
         }
       });
+      if (isPool) {
+        poolExpTotal += expTotal;
+      } else {
+        bal[payerId] += e.amount;
+        expBal[payerId] += e.amount;
+      }
     } else {
       const parts = toArray(e.participantIds).map(String).filter(id => bal[id] !== undefined);
       if (!parts.length) return;
       const share = e.amount / parts.length;
-      bal[payerId] += e.amount;
-      expBal[payerId] += e.amount;
-      parts.forEach(id => {
-        bal[id] -= share;
-        expBal[id] -= share;
-      });
+      if (isPool) {
+        poolExpTotal += e.amount;
+        parts.forEach(id => {
+          poolExpCons[id] += share;
+        });
+      } else {
+        bal[payerId] += e.amount;
+        expBal[payerId] += e.amount;
+        parts.forEach(id => {
+          bal[id] -= share;
+          expBal[id] -= share;
+        });
+      }
     }
   });
 
-  const poolTotal = members.reduce((sum, m) => sum + (pool[m && m.id] || 0), 0);
+  const poolTotal = members.reduce((sum, m) => sum + (Number(pool[m && m.id]) || 0), 0);
   const n = members.length;
-  if (poolTotal > 0 && n > 0) {
-    const per = poolTotal / n;
+  const poolRemain = poolTotal - poolExpTotal;
+
+  if (n > 0 && (poolTotal > 0 || poolExpTotal > 0)) {
+    const netSharePerMember = poolRemain / n;
     members.forEach(m => {
       if (!m) return;
       const id = String(m.id);
-      const net = (pool[m.id] || 0) - per;
+      const myContrib = Number(pool[id]) || 0;
+      const myCons = poolExpCons[id] || 0;
+      const net = myContrib - myCons - netSharePerMember;
       bal[id] += net;
       poolBal[id] += net;
     });
   }
-  return { bal, expBal, poolBal, poolTotal };
+
+  return { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain };
 }
 
 function minimizeTransactions(balances) {
@@ -1607,8 +1673,11 @@ function minimizeTransactions(balances) {
 function renderSettle() {
   const summaryEl = document.getElementById('settle-summary');
   const txListEl = document.getElementById('tx-list');
-  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
-  const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0);
+  const poolTotal = state.members.reduce((s, m) => s + (Number(state.pool[m.id]) || 0), 0);
+  const poolExpTotal = state.expenses
+    .filter(e => String(e.payerId) === 'pool')
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0 || poolExpTotal > 0);
   if (!hasData) {
     summaryEl.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📊</div>請先新增費用或公費</div>';
     txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>暫無需要付款的交易</li>';
@@ -1626,8 +1695,14 @@ function renderSettle() {
     const label = b > 0.005 ? '應收' : b < -0.005 ? '應付' : '已結清';
     const sign = b > 0.005 ? '+' : (b < -0.005 ? '-' : '');
     let breakdown = '';
-    if (state.expenses.length > 0 && poolTotal > 0) {
-      breakdown = `<div class="s-breakdown">費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費池：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
+    const hasExpBal = Math.abs(eb) > 0.005;
+    const hasPoolBal = Math.abs(pb) > 0.005;
+    if (hasExpBal && hasPoolBal) {
+      breakdown = `<div class="s-breakdown">個人費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費結算：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
+    } else if (hasExpBal && (poolTotal > 0 || poolExpTotal > 0)) {
+      breakdown = `<div class="s-breakdown">個人費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費結算：$0</div>`;
+    } else if (hasPoolBal && state.expenses.some(e => String(e.payerId) !== 'pool')) {
+      breakdown = `<div class="s-breakdown">個人費用：$0<br>公費結算：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
     }
     const el = document.createElement('div');
     el.className = `settle-person ${cls}`;
@@ -1654,14 +1729,26 @@ function copyResult() {
     toast('沒有資料可複製');
     return;
   }
-  const { bal } = computeBalances();
+  const { bal, poolTotal, poolExpTotal, poolRemain } = computeBalances();
   const txs = minimizeTransactions(bal);
   const title = state.billTitle || '分帳結算';
   const expTotal = state.expenses.reduce((s, e) => s + e.amount, 0);
-  const poolTotal = state.members.reduce((s, m) => s + (state.pool[m.id] || 0), 0);
   let text = `【${title}】\n`;
-  if (expTotal > 0) text += `費用合計：$${fmt(expTotal)}（${state.expenses.length} 筆）\n`;
-  if (poolTotal > 0) text += `公費池合計：$${fmt(poolTotal)}（每人 $${fmt(poolTotal / state.members.length)}）\n`;
+  if (expTotal > 0) {
+    const poolExpCount = state.expenses.filter(e => String(e.payerId) === 'pool').length;
+    text += `費用合計：$${fmt(expTotal)}（${state.expenses.length} 筆`;
+    if (poolExpCount > 0) {
+      text += `，含公費付款 ${poolExpCount} 筆 $${fmt(poolExpTotal)}`;
+    }
+    text += `）\n`;
+  }
+  if (poolTotal > 0 || poolExpTotal > 0) {
+    text += `公費池：總繳入 $${fmt(poolTotal)}`;
+    if (poolExpTotal > 0) {
+      text += ` · 支出 $${fmt(poolExpTotal)} · 剩餘 $${fmt(poolRemain)}`;
+    }
+    text += `\n`;
+  }
   text += `\n各人結餘：\n`;
   state.members.forEach(m => {
     const b = Math.round((bal[m.id] || 0) * 100) / 100;
@@ -1922,13 +2009,7 @@ function applyRemoteData(data, updatedBy) {
     } else {
       const payerSel = document.getElementById('exp-payer');
       if (payerSel) {
-        const curVal = payerSel.value;
-        payerSel.innerHTML = state.members.length
-          ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
-          : '<option value="">（請先新增成員）</option>';
-        if (curVal && state.members.some(m => String(m.id) === String(curVal))) {
-          payerSel.value = curVal;
-        }
+        renderPayerOptions(payerSel, payerSel.value);
       }
     }
 
@@ -2288,6 +2369,15 @@ window.openEditExpenseModal = openEditExpenseModal;
 window.closeEditExpenseModal = closeEditExpenseModal;
 window.saveExpenseEdit = saveExpenseEdit;
 window.setEditSplitMode = setEditSplitMode;
+window.renderPayerOptions = renderPayerOptions;
+window.renderExpenseForm = renderExpenseForm;
+window.renderExpenses = renderExpenses;
+window.renderPoolTab = renderPoolTab;
+window.updatePoolSummary = updatePoolSummary;
+window.renderSettle = renderSettle;
+window.addExpense = addExpense;
+window.removeExpense = removeExpense;
+window.applyRemoteData = applyRemoteData;
 
 init();
 </script>

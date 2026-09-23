@@ -232,15 +232,16 @@ assert.strictEqual(appState.poolMode, 'individual', 'Default poolMode should be 
 
   assert(lastCopiedText.includes('【員工旅遊分帳】'));
   assert(lastCopiedText.includes('費用合計：$2000'));
-  assert(lastCopiedText.includes('公費/贊助池（個人預繳扣抵）：總預繳 $10000 · 已扣抵 $500 · 剩餘 $9500'));
+  assert(lastCopiedText.includes('公費/贊助池（個人預繳扣抵）：總預繳 $10000 · 總支出/補償 $500 · 剩餘 $9500'));
   assert(lastCopiedText.includes('老闆：已結清 $0（預繳 $10000，扣抵 $500，餘 $9500）'));
   assert(lastCopiedText.includes('小華：應收 +$1000（由贊助款收回代墊 $500）'));
   assert(lastCopiedText.includes('小美：應付 -$500'));
   assert(lastCopiedText.includes('阿豪：應付 -$500'));
   assert(lastCopiedText.includes('小美 → 小華：$500'));
   assert(lastCopiedText.includes('阿豪 → 小華：$500'));
-  assert(lastCopiedText.includes('預繳款/贊助款退還：'));
-  assert(lastCopiedText.includes('老闆 預繳款尚有剩餘 $9500，由公費保管人退還本人。'));
+  assert(lastCopiedText.includes('公費/贊助款退還與代墊補償（由公費保管人處理）：'));
+  assert(lastCopiedText.includes('代墊補償：小華 代墊款由公費/贊助款退回 $500'));
+  assert(lastCopiedText.includes('餘額退還：老闆 預繳款尚有剩餘 $9500，由公費保管人退還本人。'));
 
   console.log('✅ Integration Test 3 Passed!');
 }
@@ -271,6 +272,85 @@ assert.strictEqual(appState.poolMode, 'individual', 'Default poolMode should be 
   assert.strictEqual(indCalc.bal['sponsor'], 0);
   assert.strictEqual(indCalc.bal['hua'], 1000);
   console.log('✅ Integration Test 4 Passed!');
+}
+
+// Test 5: Expense paid by Pool in individual mode
+{
+  console.log('Integration Test 5: Expense paid by Pool with accurate pool remaining cash');
+  const testState = {
+    billTitle: '員工旅遊公費門票',
+    members: [
+      { id: 'sponsor', name: '老闆' },
+      { id: 'hua', name: '小華' },
+      { id: 'mei', name: '小美' }
+    ],
+    expenses: [
+      {
+        id: 'e1',
+        name: '公費門票',
+        amount: 1200,
+        payerId: 'pool',
+        splitMode: 'equal',
+        participantIds: ['sponsor', 'hua', 'mei']
+      }
+    ],
+    pool: { sponsor: 10000, hua: 0, mei: 0 },
+    poolMode: 'individual'
+  };
+
+  mockContext.setState(testState);
+  mockContext.renderSettle();
+  const poolBodyHtml = getOrCreateElement('settle-pool-body').innerHTML;
+  console.log('Pool Body HTML:', poolBodyHtml);
+  assert(poolBodyHtml.includes('總繳入 <strong>$10000</strong> · 支出/補償 <strong>$1200</strong> · 剩餘款項 <strong>$8800</strong>'));
+  assert(poolBodyHtml.includes('老闆</strong>：預繳 <strong>$10000</strong> · 扣抵個人消費 <strong>$400</strong> · 代墊公費支出 <strong>$800</strong>（由轉帳收回） · 剩餘 <strong>$8800</strong>（退還本人）'));
+
+  mockContext.copyResult();
+  console.log('Copied Pool Expense Text:\n' + lastCopiedText);
+  assert(lastCopiedText.includes('公費/贊助池（個人預繳扣抵）：總預繳 $10000 · 總支出/補償 $1200 · 剩餘 $8800'));
+  assert(lastCopiedText.includes('老闆：應收 +$800（預繳 $10000，扣抵 $400，餘 $8800；代墊公費 $800（由轉帳收回））'));
+  assert(lastCopiedText.includes('餘額退還：老闆 預繳款尚有剩餘 $8800，由公費保管人退還本人。'));
+
+  const calc = mockContext.computeBalances();
+  assert.strictEqual(calc.bal['sponsor'], 800);
+  assert.strictEqual(calc.bal['hua'], -400);
+  assert.strictEqual(calc.bal['mei'], -400);
+  assert.strictEqual(calc.poolPersonalRemain['sponsor'], 8800);
+  const sum = Object.values(calc.bal).reduce((a, b) => a + b, 0);
+  assert.strictEqual(Math.abs(sum) < 0.0001, true);
+
+  console.log('✅ Integration Test 5 Passed!');
+}
+
+// Test 6: Zero Deposit Pool Expense Deficit Handling
+{
+  console.log('Integration Test 6: Zero deposit pool expense deficit');
+  const testState = {
+    billTitle: '赤字測試',
+    members: [
+      { id: 'm1', name: '小華' },
+      { id: 'm2', name: '小美' }
+    ],
+    expenses: [
+      { id: 'e1', name: '公費門票', amount: 1000, payerId: 'pool', splitMode: 'equal', participantIds: ['m1', 'm2'] }
+    ],
+    pool: { m1: 0, m2: 0 },
+    poolMode: 'individual'
+  };
+
+  mockContext.setState(testState);
+  const calc = mockContext.computeBalances();
+  console.log('Zero Deposit Deficit Balances:', calc.bal);
+  assert.strictEqual(calc.bal['m1'], 0);
+  assert.strictEqual(calc.bal['m2'], 0);
+  const sum = Object.values(calc.bal).reduce((a, b) => a + b, 0);
+  assert.strictEqual(Math.abs(sum) < 0.0001, true);
+
+  mockContext.renderSettle();
+  const poolTitle = getOrCreateElement('settle-pool-title').textContent;
+  assert(poolTitle.includes('透支'));
+
+  console.log('✅ Integration Test 6 Passed!');
 }
 
 console.log('--- ALL INTEGRATION TESTS PASSED SUCCESSFULLY! ---');

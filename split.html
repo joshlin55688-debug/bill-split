@@ -1091,17 +1091,20 @@ function updatePoolSummary() {
   if (poolMode === 'individual') {
     let totalOffset = 0;
     let totalRemain = 0;
+    let totalReimbursed = 0;
     let sponsorsCount = 0;
     state.members.forEach(m => {
-      const val = Number(state.pool[m.id]) || 0;
+      const id = String(m.id);
+      const val = Number(state.pool[id]) || 0;
       if (val > 0) sponsorsCount++;
-      const off = (poolOffset && poolOffset[m.id]) || 0;
-      const rem = (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : val;
-      const rmb = (poolReimbursed && poolReimbursed[m.id]) || 0;
+      const off = (poolOffset && poolOffset[id]) || 0;
+      const rem = (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : val;
+      const rmb = (poolReimbursed && poolReimbursed[id]) || 0;
       totalOffset += off;
       totalRemain += rem;
+      totalReimbursed += rmb;
 
-      const el = document.getElementById('pool-share-' + m.id);
+      const el = document.getElementById('pool-share-' + id);
       if (!el) return;
       if (val > 0) {
         if (off > 0 && rem > 0) {
@@ -1122,16 +1125,17 @@ function updatePoolSummary() {
       }
     });
 
+    const totalPaidOut = poolExpTotal + totalReimbursed;
     const summary = document.getElementById('pool-summary');
-    if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0) {
+    if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0 || totalReimbursed > 0) {
       summary.style.display = 'flex';
       if (totalLabel) totalLabel.textContent = '總預繳/贊助';
       document.getElementById('pool-total-display').textContent = '$' + fmt(poolTotal);
 
       if (spentEl) {
         spentEl.style.display = 'inline';
-        if (spentLabel) spentLabel.textContent = '已扣抵個人支出';
-        document.getElementById('pool-spent-display').textContent = '$' + fmt(totalOffset + poolExpTotal);
+        if (spentLabel) spentLabel.textContent = '支出/補償總額';
+        document.getElementById('pool-spent-display').textContent = '$' + fmt(totalPaidOut);
       }
       if (remainEl) {
         remainEl.style.display = 'inline';
@@ -1852,22 +1856,25 @@ function computeBalances(s = state) {
   const poolReimbursed = {};
   const uncoveredPoolExp = {};
   const directOwed = {};
+  const surplus = {};
 
   members.forEach(m => {
-    poolReimbursed[m.id] = 0;
-    directOwed[m.id] = {};
+    const id = String(m.id);
+    poolReimbursed[id] = 0;
+    directOwed[id] = {};
     members.forEach(p => {
-      directOwed[m.id][p.id] = 0;
+      directOwed[id][String(p.id)] = 0;
     });
   });
 
   members.forEach(m => {
-    const id = m.id;
+    const id = String(m.id);
     const contrib = Number(pool[id]) || 0;
     let debtToOthers = 0;
     members.forEach(p => {
-      if (p.id !== id) {
-        debtToOthers += (owesToPayer[p.id][id] || 0);
+      const pid = String(p.id);
+      if (pid !== id) {
+        debtToOthers += (owesToPayer[pid] && owesToPayer[pid][id]) || 0;
       }
     });
     const debtToPool = poolExpCons[id] || 0;
@@ -1875,16 +1882,17 @@ function computeBalances(s = state) {
 
     const offset = Math.min(contrib, totalObligations);
     poolOffset[id] = offset;
-    poolPersonalRemain[id] = contrib - offset;
+    surplus[id] = contrib - offset;
 
     const ratio = totalObligations > 0 ? (offset / totalObligations) : 0;
 
     members.forEach(p => {
-      if (p.id !== id) {
-        const owed = owesToPayer[p.id][id] || 0;
+      const pid = String(p.id);
+      if (pid !== id) {
+        const owed = (owesToPayer[pid] && owesToPayer[pid][id]) || 0;
         const comp = owed * ratio;
-        poolReimbursed[p.id] += comp;
-        directOwed[id][p.id] = owed - comp;
+        poolReimbursed[pid] += comp;
+        directOwed[id][pid] = owed - comp;
       }
     });
 
@@ -1895,57 +1903,72 @@ function computeBalances(s = state) {
   let totalSurplus = 0;
   let totalUncoveredPool = 0;
   members.forEach(m => {
-    totalSurplus += poolPersonalRemain[m.id] || 0;
-    totalUncoveredPool += uncoveredPoolExp[m.id] || 0;
+    const id = String(m.id);
+    totalSurplus += surplus[id] || 0;
+    totalUncoveredPool += uncoveredPoolExp[id] || 0;
   });
 
   const poolCred = {};
+  const fundedDebtToSurplus = {};
   members.forEach(m => {
-    poolCred[m.id] = 0;
+    const id = String(m.id);
+    poolCred[id] = 0;
+    fundedDebtToSurplus[id] = 0;
   });
 
-  if (totalUncoveredPool > 0) {
-    if (totalSurplus > 0) {
-      members.forEach(m => {
-        const surplus = poolPersonalRemain[m.id] || 0;
-        if (surplus > 0) {
-          poolCred[m.id] = totalUncoveredPool * (surplus / totalSurplus);
-        }
-      });
-    }
+  const fundedPoolFronted = Math.min(totalSurplus, totalUncoveredPool);
+  if (fundedPoolFronted > 0) {
+    members.forEach(m => {
+      const id = String(m.id);
+      if (totalSurplus > 0) {
+        poolCred[id] = fundedPoolFronted * ((surplus[id] || 0) / totalSurplus);
+      }
+      if (totalUncoveredPool > 0) {
+        fundedDebtToSurplus[id] = fundedPoolFronted * ((uncoveredPoolExp[id] || 0) / totalUncoveredPool);
+      }
+    });
   }
 
+  // Cash remaining in pool envelope to be refunded to members by pool keeper:
   members.forEach(m => {
-    const id = m.id;
+    const id = String(m.id);
+    poolPersonalRemain[id] = Math.max(0, (surplus[id] || 0) - poolCred[id]);
+  });
+
+  members.forEach(m => {
+    const id = String(m.id);
     let directCredit = 0;
     let directDebit = 0;
     members.forEach(other => {
-      if (other.id !== id) {
-        directCredit += directOwed[other.id][id] || 0;
-        directDebit += directOwed[id][other.id] || 0;
+      const oid = String(other.id);
+      if (oid !== id) {
+        directCredit += (directOwed[oid] && directOwed[oid][id]) || 0;
+        directDebit += (directOwed[id] && directOwed[id][oid]) || 0;
       }
     });
 
-    const net = (directCredit + poolCred[id]) - (directDebit + uncoveredPoolExp[id]);
+    const net = (directCredit + poolCred[id]) - (directDebit + fundedDebtToSurplus[id]);
     bal[id] = net;
-    expBal[id] = (paidByMember[id] - (memberExpenses[id] - (poolExpCons[id] || 0)));
+    expBal[id] = (paidByMember[id] || 0) - ((memberExpenses[id] || 0) - (poolExpCons[id] || 0));
     poolBal[id] = (Number(pool[id]) || 0) - (poolOffset[id] || 0);
   });
 
-  // Strict penny-balancing to guarantee exact sum(bal) === 0
+  // Strict penny-balancing to guarantee exact sum(bal) === 0 (only adjusting rounding drift)
   let rawSum = 0;
   members.forEach(m => {
-    bal[m.id] = Math.round(bal[m.id] * 100) / 100;
-    rawSum += bal[m.id];
+    const id = String(m.id);
+    bal[id] = Math.round(bal[id] * 100) / 100;
+    rawSum += bal[id];
   });
   rawSum = Math.round(rawSum * 100) / 100;
-  if (Math.abs(rawSum) >= 0.01 && members.length > 0) {
-    let maxMid = members[0].id;
+  if (Math.abs(rawSum) >= 0.005 && Math.abs(rawSum) <= 0.05 && members.length > 0) {
+    let maxMid = String(members[0].id);
     let maxAbs = Math.abs(bal[maxMid]);
     members.forEach(m => {
-      if (Math.abs(bal[m.id]) > maxAbs) {
-        maxAbs = Math.abs(bal[m.id]);
-        maxMid = m.id;
+      const id = String(m.id);
+      if (Math.abs(bal[id]) > maxAbs) {
+        maxAbs = Math.abs(bal[id]);
+        maxMid = id;
       }
     });
     bal[maxMid] = Math.round((bal[maxMid] - rawSum) * 100) / 100;
@@ -1958,6 +1981,7 @@ function computeBalances(s = state) {
     poolOffset,
     poolReimbursed,
     poolPersonalRemain,
+    poolCred,
     memberExpenses
   };
 }
@@ -1993,7 +2017,7 @@ function renderSettle() {
   const poolBodyEl = document.getElementById('settle-pool-body');
 
   const calc = computeBalances();
-  const { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain } = calc;
+  const { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain, poolCred } = calc;
   const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0 || poolExpTotal > 0);
   if (!hasData) {
     if (poolCardEl) poolCardEl.style.display = 'none';
@@ -2006,34 +2030,61 @@ function renderSettle() {
     if (poolMode === 'individual') {
       let totalOffset = 0;
       let totalRemain = 0;
+      let totalReimbursed = 0;
       state.members.forEach(m => {
-        totalOffset += (poolOffset && poolOffset[m.id]) || 0;
-        totalRemain += (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : (Number(state.pool[m.id]) || 0);
+        const id = String(m.id);
+        totalOffset += (poolOffset && poolOffset[id]) || 0;
+        totalRemain += (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : (Number(state.pool[id]) || 0);
+        totalReimbursed += (poolReimbursed && poolReimbursed[id]) || 0;
       });
-      if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0) {
-        poolCardEl.style.display = 'block';
-        poolCardEl.style.background = 'var(--pool-bg)';
-        poolCardEl.style.borderColor = 'var(--pool-border)';
-        poolTitleEl.style.color = 'var(--pool)';
-        poolTitleEl.textContent = `🎁 個人預繳 / 贊助款池明細（總額 $${fmt(poolTotal)}）`;
+      const totalPaidOut = poolExpTotal + totalReimbursed;
+      const poolDeficit = Math.max(0, totalPaidOut - poolTotal);
 
-        let poolDetailHtml = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 已扣抵個人支出 <strong>$${fmt(totalOffset + poolExpTotal)}</strong> · 剩餘款項 <strong>$${fmt(totalRemain)}</strong>`;
-        const activePoolMembers = state.members.filter(m => (Number(state.pool[m.id]) > 0 || (poolReimbursed && poolReimbursed[m.id] > 0)));
+      if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0 || totalReimbursed > 0) {
+        poolCardEl.style.display = 'block';
+        if (poolDeficit > 0) {
+          poolCardEl.style.background = '#ffebee';
+          poolCardEl.style.borderColor = '#ffcdd2';
+          poolTitleEl.style.color = 'var(--red)';
+          poolTitleEl.textContent = `⚠️ 個人預繳/贊助款透支（赤字 -$${fmt(poolDeficit)}）`;
+        } else {
+          poolCardEl.style.background = 'var(--pool-bg)';
+          poolCardEl.style.borderColor = 'var(--pool-border)';
+          poolTitleEl.style.color = 'var(--pool)';
+          poolTitleEl.textContent = `🎁 個人預繳 / 贊助款池明細（總額 $${fmt(poolTotal)}）`;
+        }
+
+        let poolDetailHtml = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出/補償 <strong>$${fmt(totalPaidOut)}</strong>`;
+        if (poolDeficit > 0) {
+          poolDetailHtml += ` · 透支赤字 <strong style="color:var(--red)">-$${fmt(poolDeficit)}</strong>`;
+        } else {
+          poolDetailHtml += ` · 剩餘款項 <strong>$${fmt(totalRemain)}</strong>`;
+        }
+
+        const activePoolMembers = state.members.filter(m => {
+          const id = String(m.id);
+          return (Number(state.pool[id]) > 0 || (poolReimbursed && poolReimbursed[id] > 0));
+        });
         if (activePoolMembers.length > 0) {
           poolDetailHtml += `<div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--pool-border);display:flex;flex-direction:column;gap:5px;font-size:0.78rem;line-height:1.6">`;
           activePoolMembers.forEach(m => {
-            const val = Number(state.pool[m.id]) || 0;
-            const off = (poolOffset && poolOffset[m.id]) || 0;
-            const rem = (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : val;
-            const rmb = (poolReimbursed && poolReimbursed[m.id]) || 0;
+            const id = String(m.id);
+            const val = Number(state.pool[id]) || 0;
+            const off = (poolOffset && poolOffset[id]) || 0;
+            const rem = (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : val;
+            const rmb = (poolReimbursed && poolReimbursed[id]) || 0;
+            const pc = (poolCred && poolCred[id]) || 0;
             const items = [];
             if (val > 0) {
               items.push(`預繳 <strong>$${fmt(val)}</strong>`);
               items.push(`扣抵個人消費 <strong>$${fmt(off)}</strong>`);
+              if (pc > 0) {
+                items.push(`代墊公費支出 <strong>$${fmt(pc)}</strong>（由轉帳收回）`);
+              }
               items.push(`剩餘 <strong>$${fmt(rem)}</strong>${rem > 0 ? '（退還本人）' : ''}`);
             }
             if (rmb > 0) {
-              items.push(`代墊已由贊助款收回 <strong>+$${fmt(rmb)}</strong>`);
+              items.push(`代墊已由贊助款補償 <strong>+$${fmt(rmb)}</strong>（由公費保管人支付）`);
             }
             poolDetailHtml += `<div>• <strong>${escHtml(m.name)}</strong>：${items.join(' · ')}</div>`;
           });
@@ -2088,12 +2139,16 @@ function renderSettle() {
       const off = (poolOffset && poolOffset[id]) || 0;
       const rem = (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : pVal;
       const rmb = (poolReimbursed && poolReimbursed[id]) || 0;
+      const pc = (poolCred && poolCred[id]) || 0;
       const lines = [];
       if (pVal > 0) {
         lines.push(`預繳款：$${fmt(pVal)} (扣抵 $${fmt(off)}，餘 $${fmt(rem)})`);
       }
       if (rmb > 0) {
         lines.push(`公費/贊助已補償代墊：+$${fmt(rmb)}`);
+      }
+      if (pc > 0) {
+        lines.push(`代墊公費支出：+$${fmt(pc)} (由轉帳收回)`);
       }
       if (Math.abs(b) > 0.005) {
         lines.push(`結算轉帳：${sign}$${fmt(Math.abs(b))}`);
@@ -2139,7 +2194,7 @@ function copyResult() {
     return;
   }
   const calc = computeBalances();
-  const { bal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain } = calc;
+  const { bal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain, poolCred } = calc;
   const txs = minimizeTransactions(bal);
   const title = state.billTitle || '分帳結算';
   const expTotal = state.expenses.reduce((s, e) => s + e.amount, 0);
@@ -2157,30 +2212,46 @@ function copyResult() {
   if (poolMode === 'individual') {
     let totalOffset = 0;
     let totalRemain = 0;
+    let totalReimbursed = 0;
     state.members.forEach(m => {
-      totalOffset += (poolOffset && poolOffset[m.id]) || 0;
-      totalRemain += (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : (Number(state.pool[m.id]) || 0);
+      const id = String(m.id);
+      totalOffset += (poolOffset && poolOffset[id]) || 0;
+      totalRemain += (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : (Number(state.pool[id]) || 0);
+      totalReimbursed += (poolReimbursed && poolReimbursed[id]) || 0;
     });
-    if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0) {
-      text += `公費/贊助池（個人預繳扣抵）：總預繳 $${fmt(poolTotal)} · 已扣抵 $${fmt(totalOffset + poolExpTotal)} · 剩餘 $${fmt(totalRemain)}\n`;
+    const totalPaidOut = poolExpTotal + totalReimbursed;
+    const poolDeficit = Math.max(0, totalPaidOut - poolTotal);
+
+    if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0 || totalReimbursed > 0) {
+      text += `公費/贊助池（個人預繳扣抵）：總預繳 $${fmt(poolTotal)} · 總支出/補償 $${fmt(totalPaidOut)}`;
+      if (poolDeficit > 0) {
+        text += ` · 透支赤字 -$${fmt(poolDeficit)}\n`;
+      } else {
+        text += ` · 剩餘 $${fmt(totalRemain)}\n`;
+      }
     }
     text += `\n各人結餘：\n`;
     state.members.forEach(m => {
-      const b = Math.round((bal[m.id] || 0) * 100) / 100;
+      const id = String(m.id);
+      const b = Math.round((bal[id] || 0) * 100) / 100;
       let statusText = '已結清 $0';
       if (b > 0.005) statusText = `應收 +$${fmt(b)}`;
       else if (b < -0.005) statusText = `應付 -$${fmt(Math.abs(b))}`;
 
-      const pVal = Number(state.pool[m.id]) || 0;
-      const off = (poolOffset && poolOffset[m.id]) || 0;
-      const rem = (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : pVal;
-      const rmb = (poolReimbursed && poolReimbursed[m.id]) || 0;
+      const pVal = Number(state.pool[id]) || 0;
+      const off = (poolOffset && poolOffset[id]) || 0;
+      const rem = (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : pVal;
+      const rmb = (poolReimbursed && poolReimbursed[id]) || 0;
+      const pc = (poolCred && poolCred[id]) || 0;
       const notes = [];
       if (pVal > 0) {
         notes.push(`預繳 $${fmt(pVal)}，扣抵 $${fmt(off)}，餘 $${fmt(rem)}`);
       }
       if (rmb > 0) {
         notes.push(`由贊助款收回代墊 $${fmt(rmb)}`);
+      }
+      if (pc > 0) {
+        notes.push(`代墊公費 $${fmt(pc)}（由轉帳收回）`);
       }
       const noteStr = notes.length ? `（${notes.join('；')}）` : '';
       text += `  ${m.name}：${statusText}${noteStr}\n`;
@@ -2197,12 +2268,23 @@ function copyResult() {
       });
     }
 
-    const membersWithRemain = state.members.filter(m => (poolPersonalRemain && poolPersonalRemain[m.id] > 0));
-    if (membersWithRemain.length > 0) {
-      text += `\n預繳款/贊助款退還：\n`;
-      membersWithRemain.forEach(m => {
-        text += `  ${m.name} 預繳款尚有剩餘 $${fmt(poolPersonalRemain[m.id])}，由公費保管人退還本人。\n`;
-      });
+    const membersWithReimbursed = state.members.filter(m => (poolReimbursed && poolReimbursed[String(m.id)] > 0));
+    const membersWithRemain = state.members.filter(m => (poolPersonalRemain && poolPersonalRemain[String(m.id)] > 0));
+    if (membersWithReimbursed.length > 0 || membersWithRemain.length > 0) {
+      text += `\n公費/贊助款退還與代墊補償（由公費保管人處理）：\n`;
+      if (membersWithReimbursed.length > 0) {
+        membersWithReimbursed.forEach(m => {
+          text += `  代墊補償：${m.name} 代墊款由公費/贊助款退回 $${fmt(poolReimbursed[String(m.id)])}\n`;
+        });
+      }
+      if (membersWithRemain.length > 0) {
+        membersWithRemain.forEach(m => {
+          text += `  餘額退還：${m.name} 預繳款尚有剩餘 $${fmt(poolPersonalRemain[String(m.id)])}，由公費保管人退還本人。\n`;
+        });
+      }
+    }
+    if (poolDeficit > 0) {
+      text += `\n公費透支（赤字）：\n  公費尚有透支 -$${fmt(poolDeficit)}，需補繳至公費。\n`;
     }
   } else {
     if (poolTotal > 0 || poolExpTotal > 0) {
@@ -2410,7 +2492,7 @@ function joinRoom(roomId, uploadCurrent = false) {
       } else {
         // Room not yet written on server; keep clean empty state rather than leaking local draft
         if (!loadRoomCache(roomId)) {
-          state = { billTitle: '', members: [], expenses: [], pool: {} };
+          state = { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
           document.getElementById('bill-title').value = '';
           renderMembers();
           renderExpenses();
@@ -2618,7 +2700,7 @@ function createNewRoom() {
   const keepData = document.getElementById('check-keep-local-data').checked;
   const newRoomId = generateRoomId();
   if (!keepData) {
-    state = { billTitle: '', members: [], expenses: [], pool: {} };
+    state = { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
     document.getElementById('bill-title').value = '';
   }
   joinRoom(newRoomId, true);

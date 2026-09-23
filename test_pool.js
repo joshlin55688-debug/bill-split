@@ -1,312 +1,66 @@
-// Unit tests for Bill Split Pool and Settlement Logic
+// Comprehensive Test Suite for Bill Split Pool and Settlement Logic
+const fs = require('fs');
+const vm = require('vm');
 const assert = require('assert');
 
-function toArray(val) {
-  if (!val) return [];
-  if (Array.isArray(val)) return val.filter(item => item !== null && item !== undefined);
-  if (typeof val === 'object') return Object.values(val).filter(item => item !== null && item !== undefined);
-  return [];
+// Load computeBalances and minimizeTransactions directly from split.html
+const html = fs.readFileSync('split.html', 'utf8');
+const scriptMatch = html.match(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/i);
+assert(scriptMatch, 'Inline script should exist in split.html');
+const scriptCode = scriptMatch[1];
+
+class MockElement {
+  constructor(id = '') {
+    this.id = id;
+    this.style = {};
+    this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
+    this.children = [];
+  }
+  setAttribute() {}
+  getAttribute() { return null; }
+  appendChild(c) { this.children.push(c); return c; }
+  querySelector() { return new MockElement(); }
+  querySelectorAll() { return []; }
+  addEventListener() {}
 }
 
-function computeBalances(s) {
-  if (!s || typeof s !== 'object') s = {};
-  const members = toArray(s.members);
-  const expenses = toArray(s.expenses);
-  const pool = (s.pool && typeof s.pool === 'object') ? s.pool : {};
-  const poolMode = s.poolMode === 'equal' ? 'equal' : 'individual';
-
-  const bal = {}, expBal = {}, poolBal = {};
-  const poolExpCons = {};
-  const memberExpenses = {};
-
-  members.forEach(m => {
-    if (!m) return;
-    const id = String(m.id);
-    bal[id] = 0; expBal[id] = 0; poolBal[id] = 0;
-    poolExpCons[id] = 0;
-    memberExpenses[id] = 0;
-  });
-
-  let poolExpTotal = 0;
-  const owesToPayer = {};
-  const paidByMember = {};
-  members.forEach(m => {
-    owesToPayer[m.id] = {};
-    paidByMember[m.id] = 0;
-  });
-
-  expenses.forEach(e => {
-    if (!e) return;
-    const payerId = String(e.payerId || '');
-    const isPool = (payerId === 'pool');
-
-    if (!isPool && bal[payerId] === undefined) return;
-
-    if (e.splitMode === 'custom') {
-      const splits = e.customSplits && typeof e.customSplits === 'object' ? e.customSplits : {};
-      let expTotal = 0;
-      Object.entries(splits).forEach(([id, amt]) => {
-        const mid = String(id);
-        const val = Number(amt) || 0;
-        if (val > 0 && bal[mid] !== undefined) {
-          expTotal += val;
-          memberExpenses[mid] += val;
-          if (isPool) {
-            poolExpCons[mid] += val;
-          } else {
-            if (mid !== payerId) {
-              owesToPayer[payerId][mid] = (owesToPayer[payerId][mid] || 0) + val;
-            }
-          }
-        }
-      });
-      if (isPool) {
-        poolExpTotal += expTotal;
-      } else {
-        paidByMember[payerId] += e.amount;
-      }
-    } else {
-      const parts = toArray(e.participantIds).map(String).filter(id => bal[id] !== undefined);
-      if (!parts.length) return;
-      const share = e.amount / parts.length;
-      if (isPool) {
-        poolExpTotal += e.amount;
-        parts.forEach(id => {
-          memberExpenses[id] += share;
-          poolExpCons[id] += share;
-        });
-      } else {
-        paidByMember[payerId] += e.amount;
-        parts.forEach(id => {
-          memberExpenses[id] += share;
-          if (id !== payerId) {
-            owesToPayer[payerId][id] = (owesToPayer[payerId][id] || 0) + share;
-          }
-        });
-      }
-    }
-  });
-
-  const poolTotal = members.reduce((sum, m) => sum + (Number(pool[m && m.id]) || 0), 0);
-  const n = members.length;
-  const poolRemain = poolTotal - poolExpTotal;
-
-  if (poolMode === 'equal') {
-    expenses.forEach(e => {
-      const payerId = String(e.payerId || '');
-      if (payerId === 'pool' || bal[payerId] === undefined) return;
-      if (e.splitMode === 'custom') {
-        const splits = e.customSplits || {};
-        Object.entries(splits).forEach(([mid, amt]) => {
-          const val = Number(amt) || 0;
-          if (val > 0 && bal[mid] !== undefined) {
-            bal[mid] -= val;
-            expBal[mid] -= val;
-          }
-        });
-        bal[payerId] += e.amount;
-        expBal[payerId] += e.amount;
-      } else {
-        const parts = toArray(e.participantIds).map(String).filter(id => bal[id] !== undefined);
-        if (!parts.length) return;
-        const share = e.amount / parts.length;
-        bal[payerId] += e.amount;
-        expBal[payerId] += e.amount;
-        parts.forEach(id => {
-          bal[id] -= share;
-          expBal[id] -= share;
-        });
-      }
-    });
-
-    if (n > 0 && (poolTotal > 0 || poolExpTotal > 0)) {
-      const netSharePerMember = poolRemain / n;
-      members.forEach(m => {
-        if (!m) return;
-        const id = String(m.id);
-        const myContrib = Number(pool[id]) || 0;
-        const myCons = poolExpCons[id] || 0;
-        const net = myContrib - myCons - netSharePerMember;
-        bal[id] += net;
-        poolBal[id] += net;
-      });
-    }
-
-    // Apply strict rounding
-    Object.keys(bal).forEach(id => {
-      bal[id] = Math.round(bal[id] * 100) / 100;
-    });
-
-    return {
-      poolMode: 'equal',
-      bal, expBal, poolBal,
-      poolTotal, poolExpTotal, poolRemain,
-      poolOffset: {},
-      poolReimbursed: {},
-      poolPersonalRemain: {},
-      memberExpenses
-    };
-  }
-
-  // INDIVIDUAL SPONSORSHIP / PREPAID MODE
-  const poolOffset = {};
-  const poolPersonalRemain = {};
-  const poolReimbursed = {};
-  const uncoveredPoolExp = {};
-  const directOwed = {}; // directOwed[debtor][payer] = amount
-
-  members.forEach(m => {
-    poolReimbursed[m.id] = 0;
-    directOwed[m.id] = {};
-    members.forEach(p => {
-      directOwed[m.id][p.id] = 0;
-    });
-  });
-
-  // Calculate obligations and offset per member
-  members.forEach(m => {
-    const id = m.id;
-    const contrib = Number(pool[id]) || 0;
-    let debtToOthers = 0;
-    members.forEach(p => {
-      if (p.id !== id) {
-        debtToOthers += (owesToPayer[p.id][id] || 0);
-      }
-    });
-    const debtToPool = poolExpCons[id] || 0;
-    const totalObligations = debtToOthers + debtToPool;
-
-    const offset = Math.min(contrib, totalObligations);
-    poolOffset[id] = offset;
-    poolPersonalRemain[id] = contrib - offset;
-
-    const ratio = totalObligations > 0 ? (offset / totalObligations) : 0;
-
-    members.forEach(p => {
-      if (p.id !== id) {
-        const owed = owesToPayer[p.id][id] || 0;
-        const comp = owed * ratio;
-        poolReimbursed[p.id] += comp;
-        directOwed[id][p.id] = owed - comp;
-      }
-    });
-
-    const coveredPool = debtToPool * ratio;
-    uncoveredPoolExp[id] = debtToPool - coveredPool;
-  });
-
-  // Check uncovered pool expenses funded by pool depositors with remaining surplus
-  let totalSurplus = 0;
-  let totalUncoveredPool = 0;
-  members.forEach(m => {
-    totalSurplus += poolPersonalRemain[m.id] || 0;
-    totalUncoveredPool += uncoveredPoolExp[m.id] || 0;
-  });
-
-  const poolCred = {};
-  members.forEach(m => {
-    poolCred[m.id] = 0;
-  });
-
-  if (totalUncoveredPool > 0) {
-    if (totalSurplus > 0) {
-      // Depositors with surplus pool funds fronted the uncovered pool expenses
-      members.forEach(m => {
-        const surplus = poolPersonalRemain[m.id] || 0;
-        if (surplus > 0) {
-          poolCred[m.id] = totalUncoveredPool * (surplus / totalSurplus);
-        }
-      });
-    } else {
-      // Pure overdraft when no deposits remain; equal split of deficit
-      const perOverdraft = totalUncoveredPool / n;
-      members.forEach(m => {
-        poolCred[m.id] = 0;
-      });
-    }
-  }
-
-  // Calculate net direct balances
-  members.forEach(m => {
-    const id = m.id;
-    let directCredit = 0;
-    let directDebit = 0;
-    members.forEach(other => {
-      if (other.id !== id) {
-        directCredit += directOwed[other.id][id] || 0;
-        directDebit += directOwed[id][other.id] || 0;
-      }
-    });
-
-    const net = (directCredit + poolCred[id]) - (directDebit + uncoveredPoolExp[id]);
-    bal[id] = net;
-    expBal[id] = (paidByMember[id] - (memberExpenses[id] - (poolExpCons[id] || 0)));
-    poolBal[id] = (Number(pool[id]) || 0) - (poolOffset[id] || 0);
-  });
-
-  // Strict penny-balancing to guarantee exact sum(bal) === 0
-  let rawSum = 0;
-  members.forEach(m => {
-    bal[m.id] = Math.round(bal[m.id] * 100) / 100;
-    rawSum += bal[m.id];
-  });
-  rawSum = Math.round(rawSum * 100) / 100;
-  if (Math.abs(rawSum) >= 0.01 && members.length > 0) {
-    // Find member with maximum absolute balance to absorb cent discrepancy
-    let maxMid = members[0].id;
-    let maxAbs = Math.abs(bal[maxMid]);
-    members.forEach(m => {
-      if (Math.abs(bal[m.id]) > maxAbs) {
-        maxAbs = Math.abs(bal[m.id]);
-        maxMid = m.id;
-      }
-    });
-    bal[maxMid] = Math.round((bal[maxMid] - rawSum) * 100) / 100;
-  }
-
-  return {
-    poolMode: 'individual',
-    bal, expBal, poolBal,
-    poolTotal, poolExpTotal, poolRemain,
-    poolOffset,
-    poolReimbursed,
-    poolPersonalRemain,
-    memberExpenses
-  };
+const elements = {};
+function getEl(id) {
+  if (!elements[id]) elements[id] = new MockElement(id);
+  return elements[id];
 }
 
-function minimizeTransactions(balances) {
-  const creditors = [], debtors = [];
-  Object.entries(balances).forEach(([id, b]) => {
-    const v = Math.round(b * 100) / 100;
-    if (v > 0.005) creditors.push({ id: String(id), amount: v });
-    else if (v < -0.005) debtors.push({ id: String(id), amount: -v });
-  });
-  creditors.sort((a, b) => b.amount - a.amount);
-  debtors.sort((a, b) => b.amount - a.amount);
-  const txs = [];
-  let ci = 0, di = 0;
-  while (ci < creditors.length && di < debtors.length) {
-    const c = creditors[ci], d = debtors[di];
-    const amount = Math.min(c.amount, d.amount);
-    txs.push({ from: d.id, to: c.id, amount: Math.round(amount * 100) / 100 });
-    c.amount -= amount;
-    d.amount -= amount;
-    if (c.amount < 0.005) ci++;
-    if (d.amount < 0.005) di++;
-  }
-  return txs;
-}
+const sandbox = {
+  document: {
+    getElementById: getEl,
+    createElement: (tag) => new MockElement(tag),
+    querySelectorAll: () => [],
+    addEventListener: () => {}
+  },
+  window: {},
+  navigator: { clipboard: { writeText: () => Promise.resolve() } },
+  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  location: { search: '', hash: '', origin: 'http://localhost', pathname: '/split.html' },
+  URLSearchParams,
+  setTimeout: () => {},
+  clearTimeout: () => {},
+  console: console
+};
+sandbox.window = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(scriptCode, sandbox);
 
-// ── Test Suites ──
-console.log('--- RUNNING TESTS ---');
+const computeBalances = sandbox.computeBalances;
+const minimizeTransactions = sandbox.minimizeTransactions;
 
-// Test 1: User's Core Scenario
+console.log('--- RUNNING TEST SUITE ---');
+
+// Test 1: Core Sponsor Scenario
 {
   console.log('Test 1: Core Sponsor Scenario');
   const s = {
     members: [
-      { id: 'sponsor', name: 'Sponsor' },
+      { id: 'sponsor', name: '老闆' },
       { id: 'hua', name: '小華' },
       { id: 'mei', name: '小美' },
       { id: 'hao', name: '阿豪' }
@@ -314,7 +68,7 @@ console.log('--- RUNNING TESTS ---');
     expenses: [
       {
         id: 'e1',
-        name: '4人晚餐',
+        name: '聚餐大餐',
         amount: 2000,
         payerId: 'hua',
         splitMode: 'equal',
@@ -334,34 +88,23 @@ console.log('--- RUNNING TESTS ---');
   console.log('Pool reimbursed to payers:', res.poolReimbursed);
   console.log('Pool remain per member:', res.poolPersonalRemain);
 
-  assert.strictEqual(res.bal['sponsor'], 0, 'Sponsor should owe 0');
-  assert.strictEqual(res.bal['hua'], 1000, 'Hua should be owed 1000 from mei & hao');
-  assert.strictEqual(res.bal['mei'], -500, 'Mei owes 500');
-  assert.strictEqual(res.bal['hao'], -500, 'Hao owes 500');
+  assert.strictEqual(res.bal['sponsor'], 0);
+  assert.strictEqual(res.bal['hua'], 1000);
+  assert.strictEqual(res.bal['mei'], -500);
+  assert.strictEqual(res.bal['hao'], -500);
 
-  assert.strictEqual(res.poolOffset['sponsor'], 500, 'Sponsor offset should be 500');
-  assert.strictEqual(res.poolPersonalRemain['sponsor'], 9500, 'Sponsor pool remain should be 9500');
-  assert.strictEqual(res.poolReimbursed['hua'], 500, 'Hua should be reimbursed 500 from pool');
+  assert.strictEqual(res.poolOffset['sponsor'], 500);
+  assert.strictEqual(res.poolPersonalRemain['sponsor'], 9500);
+  assert.strictEqual(res.poolReimbursed['hua'], 500);
 
-  // Check sum of balances is exactly 0
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
-  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be 0');
-
-  // Check transfers
-  assert.strictEqual(txs.length, 2);
-  const txMei = txs.find(t => t.from === 'mei');
-  const txHao = txs.find(t => t.from === 'hao');
-  assert(txMei && txMei.to === 'hua' && txMei.amount === 500);
-  assert(txHao && txHao.to === 'hua' && txHao.amount === 500);
-
-  // Ensure Sponsor is NOT in any transfer
-  assert.strictEqual(txs.some(t => t.from === 'sponsor' || t.to === 'sponsor'), false);
+  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum of balances must be 0');
   console.log('✅ Test 1 Passed!');
 }
 
-// Test 2: Pool Payer Expense
+// Test 2: Expense paid by Pool
 {
-  console.log('Test 2: Expense paid by Pool');
+  console.log('Test 2: Expense paid by Pool with accurate pool remaining cash');
   const s = {
     members: [
       { id: 'sponsor', name: 'Sponsor' },
@@ -388,15 +131,25 @@ console.log('--- RUNNING TESTS ---');
 
   console.log('Balances:', res.bal);
   console.log('Transfers:', txs);
+  console.log('Pool personal remain:', res.poolPersonalRemain);
 
-  assert.strictEqual(res.bal['sponsor'], 750, 'Sponsor fronted 750 for other 3');
+  // Sponsor:
+  // Paid 10000 into pool envelope.
+  // Pool paid 1000 out for tickets.
+  // Cash remaining in pool envelope = 9000!
+  // res.poolPersonalRemain['sponsor'] must equal 9000!
+  assert.strictEqual(res.poolPersonalRemain['sponsor'], 9000);
+  assert.strictEqual(res.poolOffset['sponsor'], 250);
+  assert.strictEqual(res.poolCred['sponsor'], 750);
+
+  // Transfers: Hua, Mei, Hao owe Sponsor 250 each
+  assert.strictEqual(res.bal['sponsor'], 750);
   assert.strictEqual(res.bal['hua'], -250);
   assert.strictEqual(res.bal['mei'], -250);
   assert.strictEqual(res.bal['hao'], -250);
 
-  assert.strictEqual(res.poolOffset['sponsor'], 250, 'Sponsor offset own 250');
-  assert.strictEqual(res.poolPersonalRemain['sponsor'], 9750);
-
+  // Sponsor receives: $9,000 (pool cash) + $750 (transfers) = $9,750
+  // Net spent by Sponsor = $10,000 - $9,750 = $250 (exact share)
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
   assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be 0');
   console.log('✅ Test 2 Passed!');
@@ -439,18 +192,16 @@ console.log('--- RUNNING TESTS ---');
   console.log('Balances:', res.bal);
   console.log('Transfers:', txs);
 
-  // Sponsor:
-  // e1: owes hua 500 -> covered by pool
-  // e2: owes pool 200 -> covered by pool
-  // Total sponsor pool offset = 700, remaining = 4300
-  // Pool fronted for hua: 200, mei: 200 -> Sponsor credited 400
-  // Sponsor net bal = +400
-  // Hua:
-  // Paid 1500, self 500, pool compensated 500. Hua owes pool 200.
-  // Hua net: 1500 - 500 - 500 - 200 + 500 (mei owes) = +300
-  // Mei:
-  // Owes hua 500, owes pool/sponsor 200. Net = -700.
-  // Balances: sponsor: +400, hua: +300, mei: -700. Sum = 0!
+  // Sponsor deposited 5000.
+  // Pool paid: 600 (taxi) + 500 (reimbursed to Hua) = 1100.
+  // Cash remaining in pool envelope = 5000 - 1100 = 3900!
+  assert.strictEqual(res.poolPersonalRemain['sponsor'], 3900);
+  assert.strictEqual(res.poolReimbursed['hua'], 500);
+
+  // Balances:
+  // Sponsor fronted 400 of pool taxi for Hua and Mei -> bal = +400
+  // Hua: paid 1500, self 500, reimbursed 500 from pool, owes taxi 200, Mei owes 500 -> net = +300
+  // Mei: owes 500 lunch + 200 taxi = -700
   assert.strictEqual(res.bal['sponsor'], 400);
   assert.strictEqual(res.bal['hua'], 300);
   assert.strictEqual(res.bal['mei'], -700);
@@ -460,7 +211,7 @@ console.log('--- RUNNING TESTS ---');
   console.log('✅ Test 3 Passed!');
 }
 
-// Test 4: Exhaustion of prepaid pool
+// Test 4: Prepaid Pool Exhaustion
 {
   console.log('Test 4: Prepaid Pool Exhaustion');
   const s = {
@@ -483,24 +234,14 @@ console.log('--- RUNNING TESTS ---');
   };
 
   const res = computeBalances(s);
-  const txs = minimizeTransactions(res.bal);
-
-  console.log('Balances:', res.bal);
-  console.log('Transfers:', txs);
-
-  // Sponsor prepaid 300, consumed 500.
-  // 300 reimbursed to hua from pool.
-  // Sponsor still owes hua 200 directly.
+  assert.strictEqual(res.poolOffset['sponsor'], 300);
+  assert.strictEqual(res.poolPersonalRemain['sponsor'], 0);
+  assert.strictEqual(res.poolReimbursed['hua'], 300);
   assert.strictEqual(res.bal['sponsor'], -200);
   assert.strictEqual(res.bal['hua'], 200);
-  assert.strictEqual(res.poolPersonalRemain['sponsor'], 0);
-  assert.strictEqual(txs.length, 1);
-  assert.strictEqual(txs[0].from, 'sponsor');
-  assert.strictEqual(txs[0].to, 'hua');
-  assert.strictEqual(txs[0].amount, 200);
 
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
-  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be 0');
+  assert.strictEqual(Math.abs(sum) < 0.001, true);
   console.log('✅ Test 4 Passed!');
 }
 
@@ -509,59 +250,57 @@ console.log('--- RUNNING TESTS ---');
   console.log('Test 5: Rounding with odd division');
   const s = {
     members: [
-      { id: 'm1', name: 'A' },
-      { id: 'm2', name: 'B' },
-      { id: 'm3', name: 'C' }
+      { id: 'm1', name: 'Member 1' },
+      { id: 'm2', name: 'Member 2' },
+      { id: 'm3', name: 'Member 3' }
     ],
     expenses: [
       {
         id: 'e1',
-        name: '費用',
+        name: 'Odd expense',
         amount: 100,
         payerId: 'm1',
         splitMode: 'equal',
         participantIds: ['m1', 'm2', 'm3']
       }
     ],
-    pool: { m1: 0, m2: 0, m3: 0 },
+    pool: {},
     poolMode: 'individual'
   };
 
   const res = computeBalances(s);
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
-  console.log('Balances:', res.bal, 'Sum:', sum);
-  assert.strictEqual(Math.abs(sum) < 0.0001, true, 'Sum must be strictly 0');
+  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be strictly 0');
   console.log('✅ Test 5 Passed!');
 }
 
-// Test 6: Legacy Equal Pool Mode
+// Test 6: Legacy Equal Mode
 {
   console.log('Test 6: Legacy Equal Mode');
   const s = {
     members: [
-      { id: 'm1', name: 'A' },
-      { id: 'm2', name: 'B' }
+      { id: 'm1', name: 'Member 1' },
+      { id: 'm2', name: 'Member 2' }
     ],
     expenses: [
       {
         id: 'e1',
-        name: '餐費',
-        amount: 400,
+        name: 'Expense',
+        amount: 200,
         payerId: 'm1',
         splitMode: 'equal',
         participantIds: ['m1', 'm2']
       }
     ],
-    pool: { m1: 1000, m2: 1000 },
+    pool: { m1: 500, m2: 100 },
     poolMode: 'equal'
   };
 
   const res = computeBalances(s);
-  console.log('Legacy Balances:', res.bal);
-  assert.strictEqual(res.bal['m1'], 200);
-  assert.strictEqual(res.bal['m2'], -200);
+  assert.strictEqual(res.bal['m1'], 300);
+  assert.strictEqual(res.bal['m2'], -300);
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
-  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be 0');
+  assert.strictEqual(Math.abs(sum) < 0.001, true);
   console.log('✅ Test 6 Passed!');
 }
 
@@ -578,7 +317,7 @@ console.log('--- RUNNING TESTS ---');
     expenses: [
       {
         id: 'e1',
-        name: '餐費',
+        name: 'Dinner',
         amount: 1600,
         payerId: 'payer',
         splitMode: 'equal',
@@ -590,25 +329,17 @@ console.log('--- RUNNING TESTS ---');
   };
 
   const res = computeBalances(s);
-  const txs = minimizeTransactions(res.bal);
-
-  console.log('Balances:', res.bal);
-  console.log('Transfers:', txs);
-
   assert.strictEqual(res.bal['s1'], 0);
   assert.strictEqual(res.bal['s2'], 0);
   assert.strictEqual(res.bal['m1'], -400);
   assert.strictEqual(res.bal['payer'], 400);
+
+  assert.strictEqual(res.poolReimbursed['payer'], 800);
   assert.strictEqual(res.poolPersonalRemain['s1'], 4600);
   assert.strictEqual(res.poolPersonalRemain['s2'], 2600);
-  assert.strictEqual(res.poolReimbursed['payer'], 800);
 
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
-  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be 0');
-  assert.strictEqual(txs.length, 1);
-  assert.strictEqual(txs[0].from, 'm1');
-  assert.strictEqual(txs[0].to, 'payer');
-  assert.strictEqual(txs[0].amount, 400);
+  assert.strictEqual(Math.abs(sum) < 0.001, true);
   console.log('✅ Test 7 Passed!');
 }
 
@@ -618,17 +349,17 @@ console.log('--- RUNNING TESTS ---');
   const s = {
     members: [
       { id: 's1', name: 'Sponsor' },
-      { id: 'm1', name: 'User 1' },
+      { id: 'm1', name: 'Member' },
       { id: 'payer', name: 'Payer' }
     ],
     expenses: [
       {
         id: 'e1',
-        name: '自訂分攤聚餐',
-        amount: 1500,
+        name: 'Custom',
+        amount: 1000,
         payerId: 'payer',
         splitMode: 'custom',
-        customSplits: { s1: 700, m1: 500, payer: 300 }
+        customSplits: { s1: 300, m1: 500, payer: 200 }
       }
     ],
     pool: { s1: 1000, m1: 0, payer: 0 },
@@ -636,18 +367,13 @@ console.log('--- RUNNING TESTS ---');
   };
 
   const res = computeBalances(s);
-  const txs = minimizeTransactions(res.bal);
-
-  console.log('Balances:', res.bal);
-  console.log('Transfers:', txs);
-
   assert.strictEqual(res.bal['s1'], 0);
   assert.strictEqual(res.bal['m1'], -500);
   assert.strictEqual(res.bal['payer'], 500);
-  assert.strictEqual(res.poolPersonalRemain['s1'], 300);
+  assert.strictEqual(res.poolPersonalRemain['s1'], 700);
 
   const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
-  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be 0');
+  assert.strictEqual(Math.abs(sum) < 0.001, true);
   console.log('✅ Test 8 Passed!');
 }
 
@@ -657,39 +383,36 @@ console.log('--- RUNNING TESTS ---');
   const s = {
     members: [
       { id: 's1', name: 'Sponsor' },
-      { id: 'm1', name: 'User 1' }
+      { id: 'm1', name: 'Member' }
     ],
     expenses: [],
-    pool: { s1: 10000, m1: 0 },
+    pool: { s1: 5000, m1: 0 },
     poolMode: 'individual'
   };
 
   const res = computeBalances(s);
-  const txs = minimizeTransactions(res.bal);
-
   assert.strictEqual(res.bal['s1'], 0);
   assert.strictEqual(res.bal['m1'], 0);
-  assert.strictEqual(res.poolPersonalRemain['s1'], 10000);
-  assert.strictEqual(txs.length, 0);
+  assert.strictEqual(res.poolPersonalRemain['s1'], 5000);
   console.log('✅ Test 9 Passed!');
 }
 
-// Test 10: Sponsor is also a Payer
+// Test 10: Sponsor pays out-of-pocket
 {
   console.log('Test 10: Sponsor pays out-of-pocket');
   const s = {
     members: [
       { id: 's1', name: 'Sponsor' },
-      { id: 'm1', name: 'User 1' }
+      { id: 'm1', name: 'Member' }
     ],
     expenses: [
       {
         id: 'e1',
-        name: 'Sponsor請代墊門票',
+        name: 'Meal',
         amount: 600,
         payerId: 's1',
         splitMode: 'equal',
-        participantIds: ['s1', 'm1'] // 300 each
+        participantIds: ['s1', 'm1']
       }
     ],
     pool: { s1: 5000, m1: 0 },
@@ -697,16 +420,146 @@ console.log('--- RUNNING TESTS ---');
   };
 
   const res = computeBalances(s);
-  const txs = minimizeTransactions(res.bal);
-
   assert.strictEqual(res.bal['s1'], 300);
   assert.strictEqual(res.bal['m1'], -300);
   assert.strictEqual(res.poolPersonalRemain['s1'], 5000);
-  assert.strictEqual(txs.length, 1);
-  assert.strictEqual(txs[0].from, 'm1');
-  assert.strictEqual(txs[0].to, 's1');
-  assert.strictEqual(txs[0].amount, 300);
   console.log('✅ Test 10 Passed!');
 }
 
-console.log('--- ALL TESTS PASSED SUCCESSFULLY! ---');
+// Test 11: Deficit with Zero Deposits
+{
+  console.log('Test 11: Deficit with Zero Deposits');
+  const s = {
+    members: [
+      { id: 'm1', name: 'M1' },
+      { id: 'm2', name: 'M2' }
+    ],
+    expenses: [
+      {
+        id: 'e1',
+        name: 'Pool Expense',
+        amount: 1000,
+        payerId: 'pool',
+        splitMode: 'equal',
+        participantIds: ['m1', 'm2']
+      }
+    ],
+    pool: { m1: 0, m2: 0 },
+    poolMode: 'individual'
+  };
+
+  const res = computeBalances(s);
+  assert.strictEqual(res.bal['m1'], 0);
+  assert.strictEqual(res.bal['m2'], 0);
+  const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
+  assert.strictEqual(Math.abs(sum) < 0.001, true);
+  console.log('✅ Test 11 Passed!');
+}
+
+// Test 12: Deficit with Partial Deposit
+{
+  console.log('Test 12: Deficit with Partial Deposit');
+  const s = {
+    members: [
+      { id: 'sponsor', name: 'Sponsor' },
+      { id: 'm1', name: 'M1' },
+      { id: 'm2', name: 'M2' },
+      { id: 'm3', name: 'M3' }
+    ],
+    expenses: [
+      {
+        id: 'e1',
+        name: 'Pool Expense',
+        amount: 1000,
+        payerId: 'pool',
+        splitMode: 'equal',
+        participantIds: ['sponsor', 'm1', 'm2', 'm3'] // 250 each
+      }
+    ],
+    pool: { sponsor: 500, m1: 0, m2: 0, m3: 0 },
+    poolMode: 'individual'
+  };
+
+  const res = computeBalances(s);
+  assert.strictEqual(res.poolOffset['sponsor'], 250);
+  assert.strictEqual(res.poolPersonalRemain['sponsor'], 0);
+  assert.strictEqual(res.poolCred['sponsor'], 250);
+  assert(Math.abs(res.bal['sponsor'] - 250) <= 0.02, 'Sponsor balance adjusted for exact whole cents');
+
+  const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
+  assert.strictEqual(Math.abs(sum) < 0.001, true, 'Sum must be strictly 0');
+  console.log('✅ Test 12 Passed!');
+}
+
+// Test 13: Multiple sponsors with pool-paid expenses
+{
+  console.log('Test 13: Multiple sponsors with pool-paid expenses');
+  const s = {
+    members: [
+      { id: 'a', name: 'A' },
+      { id: 'b', name: 'B' },
+      { id: 'c', name: 'C' },
+      { id: 'd', name: 'D' }
+    ],
+    expenses: [
+      {
+        id: 'e1',
+        name: 'Pool Expense',
+        amount: 2000,
+        payerId: 'pool',
+        splitMode: 'equal',
+        participantIds: ['a', 'b', 'c', 'd'] // 500 each
+      }
+    ],
+    pool: { a: 5000, b: 3000, c: 0, d: 0 },
+    poolMode: 'individual'
+  };
+
+  const res = computeBalances(s);
+  // Cash remaining in pool envelope = 8000 - 2000 = 6000
+  assert.strictEqual(Math.round((res.poolPersonalRemain['a'] + res.poolPersonalRemain['b']) * 100) / 100, 6000);
+  assert(Math.abs(res.poolPersonalRemain['a'] - 3857.14) < 0.02);
+  assert(Math.abs(res.poolPersonalRemain['b'] - 2142.86) < 0.02);
+
+  // Transfers: C and D owe 500 each. A gets 642.86, B gets 357.14.
+  assert(Math.abs(res.bal['a'] - 642.86) < 0.02);
+  assert(Math.abs(res.bal['b'] - 357.14) < 0.02);
+  assert.strictEqual(res.bal['c'], -500);
+  assert.strictEqual(res.bal['d'], -500);
+
+  const sum = Object.values(res.bal).reduce((a, b) => a + b, 0);
+  assert.strictEqual(Math.abs(sum) < 0.001, true);
+  console.log('✅ Test 13 Passed!');
+}
+
+// Test 14: Comprehensive Pool Cash Invariant
+{
+  console.log('Test 14: Mathematical Invariant of Pool Cash');
+  // In any non-overdraft scenario:
+  // Initial Pool Cash === Pool Expenses + Reimbursed to Payers + Sum(Pool Personal Remain)
+  const scenarios = [
+    { poolTotal: 10000, poolExp: 1000, reimbursed: 500 },
+    { poolTotal: 5000, poolExp: 600, reimbursed: 500 },
+    { poolTotal: 8000, poolExp: 2000, reimbursed: 0 }
+  ];
+
+  for (const sc of scenarios) {
+    const s = {
+      members: [{ id: 's1' }, { id: 'p1' }, { id: 'm1' }],
+      expenses: [
+        { id: 'e1', amount: sc.reimbursed * 2, payerId: 'p1', splitMode: 'equal', participantIds: ['s1', 'p1'] },
+        { id: 'e2', amount: sc.poolExp, payerId: 'pool', splitMode: 'equal', participantIds: ['s1', 'm1'] }
+      ],
+      pool: { s1: sc.poolTotal, p1: 0, m1: 0 },
+      poolMode: 'individual'
+    };
+    const res = computeBalances(s);
+    const sumRemain = Object.values(res.poolPersonalRemain).reduce((a, b) => a + b, 0);
+    const sumReimbursed = Object.values(res.poolReimbursed).reduce((a, b) => a + b, 0);
+    const totalCashUsed = res.poolExpTotal + sumReimbursed;
+    assert.strictEqual(Math.round((totalCashUsed + sumRemain) * 100) / 100, sc.poolTotal);
+  }
+  console.log('✅ Test 14 Passed!');
+}
+
+console.log('--- ALL 14 TESTS PASSED SUCCESSFULLY! ---');

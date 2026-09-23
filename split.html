@@ -435,6 +435,11 @@
 
 <!-- ══ 結算 ══ -->
 <div id="tab-settle" class="tab-content">
+  <div id="settle-pool-card" class="card" style="display:none;background:var(--pool-bg);border:1.5px solid var(--pool-border);margin-bottom:14px">
+    <div class="card-title pool" id="settle-pool-title" style="margin-bottom:6px">🏦 公費池結算</div>
+    <div id="settle-pool-body" style="font-size:0.82rem;color:#333;line-height:1.6"></div>
+  </div>
+
   <div class="card">
     <div class="card-title">📊 各人結餘</div>
     <p class="hint" style="margin-bottom:10px">整合「公費池」及「費用記錄」的綜合結算</p>
@@ -715,20 +720,45 @@ function sanitizeState(data) {
       name: String((m && m.name) || '未命名')
     };
   });
+  const validMemberIds = new Set(members.map(m => m.id));
+
   const expenses = toArray(data.expenses).map(e => {
     if (!e || typeof e !== 'object') return null;
     const payerId = String(e.payerId || '');
+    const cleanSplits = {};
+    if (e.customSplits && typeof e.customSplits === 'object') {
+      Object.entries(e.customSplits).forEach(([id, amt]) => {
+        const mid = String(id);
+        const val = Number(amt) || 0;
+        if (mid !== 'pool' && validMemberIds.has(mid) && val > 0) {
+          cleanSplits[mid] = Math.round(val * 100) / 100;
+        }
+      });
+    }
     return {
       id: String(e.id || uid('e')),
       name: String(e.name || '費用'),
-      amount: Number(e.amount) || 0,
+      amount: Math.round((Number(e.amount) || 0) * 100) / 100,
       payerId: payerId === 'pool' ? 'pool' : payerId,
       splitMode: e.splitMode === 'custom' ? 'custom' : 'equal',
-      participantIds: toArray(e.participantIds).map(String).filter(id => id !== 'pool'),
-      customSplits: (e.customSplits && typeof e.customSplits === 'object') ? e.customSplits : {}
+      participantIds: toArray(e.participantIds).map(String).filter(id => id !== 'pool' && validMemberIds.has(id)),
+      customSplits: cleanSplits
     };
   }).filter(Boolean);
-  const pool = (data.pool && typeof data.pool === 'object') ? data.pool : {};
+
+  const pool = {};
+  if (data.pool && typeof data.pool === 'object') {
+    Object.entries(data.pool).forEach(([id, amt]) => {
+      const mid = String(id);
+      if (validMemberIds.has(mid)) {
+        pool[mid] = Math.round((Number(amt) || 0) * 100) / 100;
+      }
+    });
+  }
+  members.forEach(m => {
+    if (pool[m.id] === undefined) pool[m.id] = 0;
+  });
+
   return {
     billTitle: String(data.billTitle || ''),
     members,
@@ -912,6 +942,7 @@ function addMember() {
   const input = document.getElementById('member-input');
   const name = input.value.trim();
   if (!name) { toast('請輸入姓名'); return; }
+  if (name === '公費' || name === '🏦 公費') { toast('成員姓名不能與公費重複'); return; }
   if (state.members.some(m => m.name === name)) { toast('姓名重複'); return; }
   const id = uid('m');
   state.members.push({ id, name });
@@ -1033,7 +1064,7 @@ function updatePoolSummary() {
         document.getElementById('pool-spent-display').textContent = '$' + fmt(poolExpTotal);
         const remainText = poolRemain >= 0 ? '$' + fmt(poolRemain) : '-$' + fmt(Math.abs(poolRemain)) + ' (赤字)';
         document.getElementById('pool-remain-display').textContent = remainText;
-        if (perLabel) perLabel.textContent = poolRemain >= 0 ? '人均剩餘' : '人均差額';
+        if (perLabel) perLabel.textContent = poolRemain >= 0 ? '人均剩餘' : '人均應補繳';
         const perRemain = n > 0 ? poolRemain / n : 0;
         document.getElementById('pool-per-display').textContent = (perRemain >= 0 ? '$' : '-$') + fmt(Math.abs(perRemain));
       } else {
@@ -1161,7 +1192,8 @@ function addExpense() {
   const isPool = (payerId === 'pool');
 
   if (currentSplitMode === 'equal') {
-    const amount = parseFloat(document.getElementById('exp-amount').value);
+    let amount = parseFloat(document.getElementById('exp-amount').value);
+    amount = Math.round((amount || 0) * 100) / 100;
     if (!amount || amount <= 0) { toast('請輸入有效金額'); return; }
     const participantIds = selectedParticipants.size > 0
       ? [...selectedParticipants]
@@ -1173,9 +1205,10 @@ function addExpense() {
     let total = 0;
     state.members.forEach(m => {
       const el = document.getElementById('custom-input-' + m.id);
-      const v = parseFloat(el?.value) || 0;
+      const v = Math.round((parseFloat(el?.value) || 0) * 100) / 100;
       if (v > 0) { customSplits[String(m.id)] = v; total += v; }
     });
+    total = Math.round(total * 100) / 100;
     if (total <= 0) { toast('請輸入至少一人的分攤金額'); return; }
     state.expenses.push({ id: uid('e'), name, amount: total, payerId, splitMode: 'custom', participantIds: [], customSplits });
   }
@@ -1527,15 +1560,18 @@ function renderExpenses() {
     const isCustom = e.splitMode === 'custom';
     let partsText = '';
     if (isCustom) {
-      partsText = Object.entries(e.customSplits || {}).map(([id, amt]) => {
+      const parts = Object.entries(e.customSplits || {}).map(([id, amt]) => {
         const m = state.members.find(m => String(m.id) === String(id));
         return m ? `${escHtml(m.name)} $${fmt(amt)}` : '';
-      }).filter(Boolean).join('、');
+      }).filter(Boolean);
+      partsText = parts.length ? parts.join('、') : '（無有效分攤對象）';
     } else {
       const pIds = toArray(e.participantIds);
-      const parts = pIds.map(pid => state.members.find(m => String(m.id) === String(pid))?.name).filter(Boolean);
-      const share = pIds.length ? e.amount / pIds.length : e.amount;
-      partsText = parts.map(escHtml).join('、') + `（每人 $${fmt(share)}）`;
+      const validParts = pIds.map(pid => state.members.find(m => String(m.id) === String(pid))).filter(Boolean);
+      const share = validParts.length ? e.amount / validParts.length : e.amount;
+      partsText = validParts.length
+        ? validParts.map(m => escHtml(m.name)).join('、') + `（每人 $${fmt(share)}）`
+        : '（無有效分攤對象）';
     }
     const item = document.createElement('div');
     item.className = 'expense-item';
@@ -1673,17 +1709,47 @@ function minimizeTransactions(balances) {
 function renderSettle() {
   const summaryEl = document.getElementById('settle-summary');
   const txListEl = document.getElementById('tx-list');
-  const poolTotal = state.members.reduce((s, m) => s + (Number(state.pool[m.id]) || 0), 0);
-  const poolExpTotal = state.expenses
-    .filter(e => String(e.payerId) === 'pool')
-    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const poolCardEl = document.getElementById('settle-pool-card');
+  const poolTitleEl = document.getElementById('settle-pool-title');
+  const poolBodyEl = document.getElementById('settle-pool-body');
+
+  const { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain } = computeBalances();
   const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0 || poolExpTotal > 0);
   if (!hasData) {
+    if (poolCardEl) poolCardEl.style.display = 'none';
     summaryEl.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📊</div>請先新增費用或公費</div>';
     txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>暫無需要付款的交易</li>';
     return;
   }
-  const { bal, expBal, poolBal } = computeBalances();
+
+  if (poolCardEl && poolTitleEl && poolBodyEl) {
+    if (poolTotal > 0 || poolExpTotal > 0) {
+      poolCardEl.style.display = 'block';
+      const perPoolRemain = state.members.length > 0 ? Math.abs(poolRemain) / state.members.length : 0;
+      if (poolRemain > 0) {
+        poolCardEl.style.background = 'var(--pool-bg)';
+        poolCardEl.style.borderColor = 'var(--pool-border)';
+        poolTitleEl.style.color = 'var(--pool)';
+        poolTitleEl.textContent = `🏦 公費池結餘：剩餘 $${fmt(poolRemain)}`;
+        poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 剩餘 <strong>$${fmt(poolRemain)}</strong><br><span style="color:var(--pool);font-weight:600">結算完成後，每人可由公費保管人退回 $${fmt(perPoolRemain)}</span>`;
+      } else if (poolRemain < 0) {
+        poolCardEl.style.background = '#ffebee';
+        poolCardEl.style.borderColor = '#ffcdd2';
+        poolTitleEl.style.color = 'var(--red)';
+        poolTitleEl.textContent = `⚠️ 公費池透支（赤字）：-$${fmt(Math.abs(poolRemain))}`;
+        poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 赤字 <strong>-$${fmt(Math.abs(poolRemain))}</strong><br><span style="color:var(--red);font-weight:600">公費不足支出，每人需補繳 $${fmt(perPoolRemain)} 到公費池（若已有成員墊付，請至「公費池」補登繳入金額）</span>`;
+      } else {
+        poolCardEl.style.background = 'var(--pool-bg)';
+        poolCardEl.style.borderColor = 'var(--pool-border)';
+        poolTitleEl.style.color = 'var(--pool)';
+        poolTitleEl.textContent = `🏦 公費池已全數用罄（餘額 $0）`;
+        poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 剩餘 <strong>$0</strong>`;
+      }
+    } else {
+      poolCardEl.style.display = 'none';
+    }
+  }
+
   const txs = minimizeTransactions(bal);
   summaryEl.innerHTML = '';
   state.members.forEach(m => {
@@ -1733,6 +1799,7 @@ function copyResult() {
   const txs = minimizeTransactions(bal);
   const title = state.billTitle || '分帳結算';
   const expTotal = state.expenses.reduce((s, e) => s + e.amount, 0);
+  const n = state.members.length;
   let text = `【${title}】\n`;
   if (expTotal > 0) {
     const poolExpCount = state.expenses.filter(e => String(e.payerId) === 'pool').length;
@@ -1745,7 +1812,17 @@ function copyResult() {
   if (poolTotal > 0 || poolExpTotal > 0) {
     text += `公費池：總繳入 $${fmt(poolTotal)}`;
     if (poolExpTotal > 0) {
-      text += ` · 支出 $${fmt(poolExpTotal)} · 剩餘 $${fmt(poolRemain)}`;
+      const perPoolRemain = n > 0 ? Math.abs(poolRemain) / n : 0;
+      if (poolRemain > 0) {
+        text += ` · 支出 $${fmt(poolExpTotal)} · 剩餘 $${fmt(poolRemain)}（每人可退 $${fmt(perPoolRemain)}）`;
+      } else if (poolRemain < 0) {
+        text += ` · 支出 $${fmt(poolExpTotal)} · 透支 $${fmt(Math.abs(poolRemain))}（每人應補繳 $${fmt(perPoolRemain)}）`;
+      } else {
+        text += ` · 支出 $${fmt(poolExpTotal)} · 已用罄（餘額 $0）`;
+      }
+    } else {
+      const per = n > 0 ? poolTotal / n : 0;
+      text += `（每人應繳 $${fmt(per)}）`;
     }
     text += `\n`;
   }
@@ -1767,6 +1844,14 @@ function copyResult() {
       text += `  ${f} → ${t}：$${fmt(tx.amount)}\n`;
     });
   }
+  if (poolTotal > 0 || poolExpTotal > 0) {
+    const perPoolRemain = n > 0 ? Math.abs(poolRemain) / n : 0;
+    if (poolRemain > 0) {
+      text += `\n公費池退款：\n  公費池尚有剩餘 $${fmt(poolRemain)}，由公費保管人退還每人 $${fmt(perPoolRemain)}。\n`;
+    } else if (poolRemain < 0) {
+      text += `\n公費池補繳：\n  公費池尚有透支 $${fmt(Math.abs(poolRemain))}，每人需補繳 $${fmt(perPoolRemain)} 到公費池。\n`;
+    }
+  }
   copyText(text, '已複製結算結果！');
 }
 
@@ -1781,6 +1866,7 @@ function clearAll() {
   document.getElementById('bill-title').value = '';
   save(true);
   renderMembers();
+  renderExpenseForm();
   renderExpenses();
   renderPoolTab();
   renderSettle();
@@ -2309,6 +2395,7 @@ function init() {
   document.getElementById('bill-title').value = state.billTitle || '';
   updateUserNameDisplay();
   renderMembers();
+  renderExpenseForm();
   renderExpenses();
 
   const editNameEl = document.getElementById('edit-exp-name');

@@ -129,6 +129,8 @@
     .btn-primary:hover { background:var(--green-light); }
     .btn-danger { background:#fdecea; color:var(--red); border:1.5px solid #f5c6c6; }
     .btn-danger:hover { background:#f9c6c6; }
+    .btn-edit { background:var(--green-bg); color:var(--green); border:1.5px solid var(--green-border); }
+    .btn-edit:hover { background:#c8e6c9; }
     .btn-outline { background:transparent; color:var(--green); border:1.5px solid var(--green); }
     .btn-outline:hover { background:var(--green-bg); }
     .btn-sm { padding:5px 11px; font-size:0.76rem; border-radius:6px; }
@@ -208,7 +210,7 @@
 
     .hint { font-size:0.74rem; color:var(--text-muted); margin-top:4px; }
 
-    #toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%) translateY(80px); background:#222; color:#fff; padding:10px 22px; border-radius:24px; font-size:0.84rem; font-weight:600; z-index:9999; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); white-space:nowrap; pointer-events:none; }
+    #toast { position:fixed; bottom:28px; left:50%; transform:translateX(-50%) translateY(80px); background:#222; color:#fff; padding:10px 22px; border-radius:24px; font-size:0.84rem; font-weight:600; z-index:10001; transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1); white-space:nowrap; pointer-events:none; }
     #toast.show { transform:translateX(-50%) translateY(0); }
 
     /* ── Modal Dialog ── */
@@ -540,6 +542,67 @@
           <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="saveCustomFbConfig()">儲存 Firebase 設定</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 編輯費用 Modal ══ -->
+<div id="edit-expense-modal" class="modal-overlay" onclick="if(event.target===this)closeEditExpenseModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 style="color:var(--green)">✏️ 編輯費用</h3>
+      <button class="modal-close" onclick="closeEditExpenseModal()">✕</button>
+    </div>
+
+    <input type="hidden" id="edit-exp-id" />
+
+    <div class="form-group">
+      <label>費用名稱</label>
+      <input id="edit-exp-name" type="text" placeholder="例：鹽水虱目魚粥、計程車費…" maxlength="30" />
+    </div>
+
+    <div class="form-group">
+      <label>付款人</label>
+      <select id="edit-exp-payer"></select>
+    </div>
+
+    <div class="form-group">
+      <label>分攤方式</label>
+      <div class="mode-toggle">
+        <button type="button" class="mode-btn active" id="edit-mode-btn-equal" onclick="setEditSplitMode('equal')">⚖️ 平均分攤</button>
+        <button type="button" class="mode-btn" id="edit-mode-btn-custom" onclick="setEditSplitMode('custom')">✏️ 自訂金額</button>
+      </div>
+    </div>
+
+    <!-- 平均分攤 -->
+    <div id="edit-equal-section">
+      <div class="form-group">
+        <label>金額（元）</label>
+        <input id="edit-exp-amount" type="number" min="0" step="any" placeholder="0" />
+      </div>
+      <div class="form-group">
+        <label>分攤對象</label>
+        <div class="hint">未選擇 = 全部成員平分</div>
+        <div class="chip-group" id="edit-exp-participants"></div>
+      </div>
+    </div>
+
+    <!-- 自訂金額 -->
+    <div id="edit-custom-section" style="display:none">
+      <div class="form-group">
+        <label>各人分攤金額</label>
+        <div class="hint">輸入每人實際應付金額（留空或 0 代表不參與）</div>
+        <div id="edit-custom-split-rows" style="margin-top:8px"></div>
+        <div class="custom-split-total">
+          <span>總計</span>
+          <span id="edit-custom-total-display">$0</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button type="button" class="btn btn-outline" style="flex:1;justify-content:center" onclick="closeEditExpenseModal()">取消</button>
+      <button type="button" class="btn btn-primary" style="flex:2;justify-content:center" onclick="saveExpenseEdit()">💾 儲存修改</button>
     </div>
   </div>
 </div>
@@ -1081,11 +1144,278 @@ function addExpense() {
 
 function removeExpense(id) {
   const strId = String(id);
+  if (editingExpenseId && String(editingExpenseId) === strId) {
+    closeEditExpenseModal();
+  }
   state.expenses = state.expenses.filter(e => String(e.id) !== strId);
   save(true);
   renderExpenses();
   renderSettle();
   toast('已刪除費用');
+}
+
+/* ── Edit Expense Modal ── */
+let editCurrentSplitMode = 'equal';
+let editSelectedParticipants = new Set();
+let editingExpenseId = null;
+
+function openEditExpenseModal(id) {
+  const exp = state.expenses.find(e => String(e.id) === String(id));
+  if (!exp) {
+    toast('找不到此費用記錄');
+    return;
+  }
+  editingExpenseId = String(id);
+  document.getElementById('edit-exp-id').value = exp.id;
+  document.getElementById('edit-exp-name').value = exp.name || '';
+
+  const payerSel = document.getElementById('edit-exp-payer');
+  payerSel.innerHTML = state.members.length
+    ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
+    : '<option value="">（請先新增成員）</option>';
+
+  if (state.members.some(m => String(m.id) === String(exp.payerId))) {
+    payerSel.value = String(exp.payerId);
+  } else if (exp.payerId) {
+    const opt = document.createElement('option');
+    opt.value = exp.payerId;
+    opt.textContent = '（已刪除成員）';
+    payerSel.appendChild(opt);
+    payerSel.value = String(exp.payerId);
+  }
+
+  editCurrentSplitMode = exp.splitMode === 'custom' ? 'custom' : 'equal';
+  setEditSplitMode(editCurrentSplitMode, false);
+
+  if (editCurrentSplitMode === 'equal') {
+    document.getElementById('edit-exp-amount').value = (exp.amount !== undefined && exp.amount !== null) ? exp.amount : '';
+    editSelectedParticipants.clear();
+    const pIds = toArray(exp.participantIds).map(String);
+    const curMemberIds = state.members.map(m => String(m.id));
+    const isAll = curMemberIds.length > 0 &&
+                  pIds.length === curMemberIds.length &&
+                  curMemberIds.every(mid => pIds.includes(mid));
+    if (!isAll && pIds.length > 0) {
+      pIds.forEach(pid => {
+        if (curMemberIds.includes(pid)) {
+          editSelectedParticipants.add(pid);
+        }
+      });
+    }
+    renderEditParticipants();
+  } else {
+    renderEditCustomSplitRows(exp.customSplits);
+  }
+
+  const modal = document.getElementById('edit-expense-modal');
+  modal.classList.add('active');
+  setTimeout(() => {
+    const nameInput = document.getElementById('edit-exp-name');
+    if (nameInput) {
+      if (typeof nameInput.focus === 'function') nameInput.focus();
+      if (typeof nameInput.select === 'function') nameInput.select();
+    }
+  }, 50);
+}
+
+function closeEditExpenseModal() {
+  const modal = document.getElementById('edit-expense-modal');
+  if (modal) modal.classList.remove('active');
+  editingExpenseId = null;
+  editSelectedParticipants.clear();
+}
+
+function setEditSplitMode(mode, autoDistribute = true) {
+  editCurrentSplitMode = mode;
+  document.getElementById('edit-mode-btn-equal').classList.toggle('active', mode === 'equal');
+  document.getElementById('edit-mode-btn-custom').classList.toggle('active', mode === 'custom');
+  document.getElementById('edit-equal-section').style.display = mode === 'equal' ? 'block' : 'none';
+  document.getElementById('edit-custom-section').style.display = mode === 'custom' ? 'block' : 'none';
+
+  if (mode === 'custom') {
+    let customData = null;
+    if (autoDistribute) {
+      const amt = parseFloat(document.getElementById('edit-exp-amount').value) || 0;
+      if (amt > 0 && state.members.length > 0) {
+        const pIds = editSelectedParticipants.size > 0
+          ? [...editSelectedParticipants]
+          : state.members.map(m => String(m.id));
+        if (pIds.length > 0) {
+          const perPerson = Math.round((amt / pIds.length) * 100) / 100;
+          customData = {};
+          pIds.forEach((pid, idx) => {
+            if (idx === pIds.length - 1) {
+              const prevSum = perPerson * (pIds.length - 1);
+              customData[pid] = Math.round((amt - prevSum) * 100) / 100;
+            } else {
+              customData[pid] = perPerson;
+            }
+          });
+        }
+      }
+    }
+    renderEditCustomSplitRows(customData);
+  } else {
+    renderEditParticipants();
+    if (autoDistribute) {
+      const customTotal = getEditCustomTotal();
+      if (customTotal > 0) {
+        document.getElementById('edit-exp-amount').value = customTotal;
+      }
+    }
+  }
+}
+
+function renderEditParticipants() {
+  const chips = document.getElementById('edit-exp-participants');
+  if (!chips) return;
+  chips.innerHTML = '';
+  if (!state.members.length) {
+    chips.innerHTML = '<span style="font-size:0.78rem;color:#aaa">請先在成員頁新增人員</span>';
+    return;
+  }
+  const allChip = document.createElement('span');
+  allChip.className = 'chip all-chip';
+  allChip.textContent = '全部';
+  allChip.onclick = () => { editSelectedParticipants.clear(); updateEditChips(); };
+  chips.appendChild(allChip);
+
+  state.members.forEach(m => {
+    const strId = String(m.id);
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (editSelectedParticipants.has(strId) ? ' selected' : '');
+    chip.dataset.id = strId;
+    chip.textContent = m.name;
+    chip.onclick = () => {
+      if (editSelectedParticipants.has(strId)) editSelectedParticipants.delete(strId);
+      else editSelectedParticipants.add(strId);
+      updateEditChips();
+    };
+    chips.appendChild(chip);
+  });
+  updateEditChips();
+}
+
+function updateEditChips() {
+  const chips = document.getElementById('edit-exp-participants');
+  if (!chips) return;
+  const allChip = chips.querySelector('.all-chip');
+  const all = editSelectedParticipants.size === 0;
+  if (allChip) allChip.classList.toggle('selected', all);
+  chips.querySelectorAll('.chip:not(.all-chip)').forEach(c =>
+    c.classList.toggle('selected', editSelectedParticipants.has(c.dataset.id))
+  );
+}
+
+function renderEditCustomSplitRows(customSplits = null) {
+  const container = document.getElementById('edit-custom-split-rows');
+  if (!container) return;
+  container.innerHTML = '';
+  state.members.forEach(m => {
+    const mid = String(m.id);
+    let val = '';
+    if (customSplits && customSplits[mid] !== undefined) {
+      val = customSplits[mid];
+    } else {
+      const curInput = document.getElementById('edit-custom-input-' + mid);
+      if (curInput && curInput.value !== '') {
+        val = curInput.value;
+      }
+    }
+    const row = document.createElement('div');
+    row.className = 'custom-split-row';
+    row.innerHTML = `<div class="custom-split-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="any" placeholder="0" id="edit-custom-input-${m.id}" value="${val !== '' && Number(val) > 0 ? val : ''}" />`;
+    row.querySelector('input').addEventListener('input', updateEditCustomTotal);
+    container.appendChild(row);
+  });
+  updateEditCustomTotal();
+}
+
+function getEditCustomTotal() {
+  return state.members.reduce((s, m) => {
+    const el = document.getElementById('edit-custom-input-' + m.id);
+    return s + (el ? parseFloat(el.value) || 0 : 0);
+  }, 0);
+}
+
+function updateEditCustomTotal() {
+  const total = getEditCustomTotal();
+  const display = document.getElementById('edit-custom-total-display');
+  if (display) display.textContent = '$' + fmt(total);
+}
+
+function saveExpenseEdit() {
+  const expId = document.getElementById('edit-exp-id').value;
+  const idx = state.expenses.findIndex(e => String(e.id) === String(expId));
+  if (idx === -1) {
+    toast('找不到此費用記錄');
+    closeEditExpenseModal();
+    return;
+  }
+
+  const name = document.getElementById('edit-exp-name').value.trim();
+  const payerId = document.getElementById('edit-exp-payer').value;
+  if (!name) {
+    toast('請輸入費用名稱');
+    const nameEl = document.getElementById('edit-exp-name');
+    if (nameEl) nameEl.focus();
+    return;
+  }
+  if (!payerId) {
+    toast('請選擇付款人');
+    return;
+  }
+
+  let amount = 0;
+  let participantIds = [];
+  let customSplits = {};
+
+  if (editCurrentSplitMode === 'equal') {
+    amount = parseFloat(document.getElementById('edit-exp-amount').value);
+    if (!amount || amount <= 0) {
+      toast('請輸入有效金額');
+      const amtEl = document.getElementById('edit-exp-amount');
+      if (amtEl) amtEl.focus();
+      return;
+    }
+    participantIds = editSelectedParticipants.size > 0
+      ? [...editSelectedParticipants]
+      : state.members.map(m => String(m.id));
+    if (!participantIds.includes(String(payerId))) {
+      participantIds.push(String(payerId));
+    }
+    customSplits = {};
+  } else {
+    state.members.forEach(m => {
+      const el = document.getElementById('edit-custom-input-' + m.id);
+      const v = parseFloat(el?.value) || 0;
+      if (v > 0) {
+        customSplits[String(m.id)] = v;
+        amount += v;
+      }
+    });
+    if (amount <= 0) {
+      toast('請輸入至少一人的分攤金額');
+      return;
+    }
+    participantIds = [];
+  }
+
+  state.expenses[idx] = {
+    id: String(expId),
+    name,
+    amount,
+    payerId: String(payerId),
+    splitMode: editCurrentSplitMode,
+    participantIds,
+    customSplits
+  };
+
+  save(true);
+  renderExpenses();
+  renderSettle();
+  closeEditExpenseModal();
+  toast(`已更新：${name}`);
 }
 
 function renderExpenses() {
@@ -1124,10 +1454,14 @@ function renderExpenses() {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
           <div class="expense-amount">$${fmt(e.amount)}</div>
-          <button class="btn btn-danger btn-sm" title="刪除費用">刪除</button>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-edit btn-sm btn-edit-expense" title="編輯費用">編輯</button>
+            <button class="btn btn-danger btn-sm btn-del-expense" title="刪除費用">刪除</button>
+          </div>
         </div>
       </div>`;
-    item.querySelector('.btn-danger').addEventListener('click', () => removeExpense(e.id));
+    item.querySelector('.btn-edit-expense').addEventListener('click', () => openEditExpenseModal(e.id));
+    item.querySelector('.btn-del-expense').addEventListener('click', () => removeExpense(e.id));
     list.appendChild(item);
   });
 }
@@ -1297,6 +1631,7 @@ function clearAll() {
   if (!confirm(msg)) return;
   state = { billTitle: '', members: [], expenses: [], pool: {} };
   selectedParticipants.clear();
+  closeEditExpenseModal();
   document.getElementById('bill-title').value = '';
   save(true);
   renderMembers();
@@ -1508,6 +1843,11 @@ function applyRemoteData(data, updatedBy) {
     renderMembers();
     renderExpenses();
 
+    if (editingExpenseId && !state.expenses.some(e => String(e.id) === String(editingExpenseId))) {
+      closeEditExpenseModal();
+      toast('⚠️ 正在編輯的費用已被遠端刪除');
+    }
+
     // Preserve active form input focus
     const activeEl = document.activeElement;
     const isTypingExpense = activeEl && (
@@ -1641,6 +1981,7 @@ function leaveRoom(confirmPrompt = true) {
   renderSettle();
   toast('已切換為本機離線模式');
   closeCollabModal();
+  closeEditExpenseModal();
 }
 
 function createNewRoom() {
@@ -1811,7 +2152,10 @@ function resetFbConfig() {
 // Escape key to close modal
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeCollabModal();
+    if (e.key === 'Escape') {
+      closeCollabModal();
+      closeEditExpenseModal();
+    }
   });
 }
 
@@ -1822,6 +2166,19 @@ function init() {
   updateUserNameDisplay();
   renderMembers();
   renderExpenses();
+
+  const editNameEl = document.getElementById('edit-exp-name');
+  if (editNameEl) {
+    editNameEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') saveExpenseEdit();
+    });
+  }
+  const editAmtEl = document.getElementById('edit-exp-amount');
+  if (editAmtEl) {
+    editAmtEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') saveExpenseEdit();
+    });
+  }
 
   // Check URL parameters
   const urlParams = new URLSearchParams(window.location.search);
@@ -1841,7 +2198,15 @@ function init() {
   }
 }
 
-window.state = state;
+try {
+  Object.defineProperty(window, 'state', {
+    get: () => state,
+    set: (s) => { state = s; },
+    configurable: true
+  });
+} catch(_) {
+  window.state = state;
+}
 window.getState = () => state;
 window.setState = (s) => { state = s; };
 window.save = save;
@@ -1856,6 +2221,10 @@ window.computeBalances = computeBalances;
 window.minimizeTransactions = minimizeTransactions;
 window.joinRoom = joinRoom;
 window.leaveRoom = leaveRoom;
+window.openEditExpenseModal = openEditExpenseModal;
+window.closeEditExpenseModal = closeEditExpenseModal;
+window.saveExpenseEdit = saveExpenseEdit;
+window.setEditSplitMode = setEditSplitMode;
 
 init();
 </script>

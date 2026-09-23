@@ -163,6 +163,10 @@
 
     /* ── Pool ── */
     .pool-card { background:var(--pool-bg); border:1.5px solid var(--pool-border); }
+    .pool-mode-toggle { display:flex; border:1.5px solid var(--pool-border); border-radius:8px; overflow:hidden; margin-bottom:12px; }
+    .pool-mode-btn { flex:1; padding:9px 8px; border:none; background:#fff; font-size:0.82rem; font-weight:700; color:var(--pool); cursor:pointer; transition:all 0.15s; display:inline-flex; align-items:center; justify-content:center; gap:5px; }
+    .pool-mode-btn.active { background:var(--pool); color:#fff; }
+    .pool-mode-btn:not(.active):hover { background:var(--pool-bg); }
     .pool-member-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--pool-border); }
     .pool-member-row:last-child { border-bottom:none; }
     .pool-member-name { display:flex; align-items:center; gap:7px; font-size:0.85rem; font-weight:600; min-width:70px; }
@@ -348,27 +352,33 @@
 <!-- ══ 公費池 ══ -->
 <div id="tab-pool" class="tab-content">
   <div class="card pool-card">
-    <div class="card-title pool">🏦 公費池 — 個人公費輸入</div>
-    <p class="hint" style="margin-bottom:12px">每位成員輸入自己繳入公費池的金額，系統會自動計算每人應分攤份額，並整合進最終結算。</p>
+    <div class="card-title pool">🏦 公費池 / 個人預繳與贊助</div>
+    <p class="hint" style="margin-bottom:12px">支援「個人預繳/贊助款」與「全員均攤公費」兩種模式，自動整合進最終結算。</p>
+
+    <div class="pool-mode-toggle">
+      <button type="button" class="pool-mode-btn active" id="pool-mode-btn-individual" onclick="setPoolMode('individual')">🎁 個人預繳 / 贊助款</button>
+      <button type="button" class="pool-mode-btn" id="pool-mode-btn-equal" onclick="setPoolMode('equal')">🏦 全員均攤公費</button>
+    </div>
+    <div id="pool-mode-desc" style="font-size:0.75rem;margin-bottom:14px;color:var(--pool);background:rgba(21,101,192,0.06);border:1px solid var(--pool-border);border-radius:8px;padding:9px 12px;line-height:1.6">
+    </div>
+
     <div id="pool-member-rows">
       <div class="empty-state"><div class="icon">👥</div>請先在「成員」頁新增成員</div>
     </div>
     <div class="pool-summary" id="pool-summary" style="display:none">
-      <span>📥 總公費：<strong id="pool-total-display">$0</strong></span>
-      <span id="pool-spent-container" style="display:none">💸 公費支出：<strong id="pool-spent-display">$0</strong></span>
-      <span id="pool-remain-container" style="display:none">💰 公費剩餘：<strong id="pool-remain-display">$0</strong></span>
+      <span>📥 <span id="pool-total-label">總公費</span>：<strong id="pool-total-display">$0</strong></span>
+      <span id="pool-spent-container" style="display:none">💸 <span id="pool-spent-label">公費支出</span>：<strong id="pool-spent-display">$0</strong></span>
+      <span id="pool-remain-container" style="display:none">💰 <span id="pool-remain-label">公費剩餘</span>：<strong id="pool-remain-display">$0</strong></span>
       <span id="pool-per-container">👤 <span id="pool-per-label">人均應繳</span>：<strong id="pool-per-display">$0</strong></span>
-      <span>👥 分攤人數：<strong id="pool-members-display">0</strong> 人</span>
+      <span id="pool-members-container">👥 <span id="pool-members-label">分攤人數</span>：<strong id="pool-members-display">0</strong> 人</span>
     </div>
   </div>
   <div class="card" style="background:var(--pool-bg);border:1.5px solid var(--pool-border)">
-    <div style="font-size:0.8rem;color:var(--pool);font-weight:700;margin-bottom:8px">📖 公費池說明</div>
+    <div style="font-size:0.8rem;color:var(--pool);font-weight:700;margin-bottom:8px">📖 公費池與贊助款說明</div>
     <ul style="font-size:0.78rem;color:#555;line-height:1.9;padding-left:16px">
-      <li>公費池：大家共同出資的公共費用（如旅遊基金、聚餐會費）</li>
-      <li>每人輸入自己「實際繳入」的金額</li>
-      <li>系統計算總金額 ÷ 人數 = 每人應分攤額</li>
-      <li>繳多了 → 應收回差額；繳少了 → 需補繳差額</li>
-      <li>此帳目會自動加入最終結算，無須手動建立費用</li>
+      <li><strong>🎁 個人預繳 / 贊助款模式（推薦）</strong>：成員預繳的金額專門用於抵扣該成員自己的支出份額，並在他人代墊時代為補償代墊人。其他成員<strong>不會被要求分攤此贊助金</strong>，結算時未扣抵完的預繳餘額退回本人。</li>
+      <li><strong>🏦 全員均攤公費模式</strong>：大家共同出資的公共費用（如旅遊基金），總繳入金額由所有人平分，多繳者應收回、少繳者需補繳。</li>
+      <li><strong>結算自動整合</strong>：所有公費與個人帳目自動整併入結算頁，輸出最少轉帳筆數！</li>
     </ul>
   </div>
 </div>
@@ -637,7 +647,7 @@ function getRoomStorageKey(roomId) {
   return 'splitapp_room_' + roomId;
 }
 
-let state = { billTitle: '', members: [], expenses: [], pool: {} };
+let state = { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
 let currentSplitMode = 'equal';
 let selectedParticipants = new Set();
 
@@ -711,7 +721,7 @@ function toArray(val) {
 
 function sanitizeState(data) {
   if (!data || typeof data !== 'object') {
-    return { billTitle: '', members: [], expenses: [], pool: {} };
+    return { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
   }
   const members = toArray(data.members).map(m => {
     if (typeof m === 'string') return { id: uid('m'), name: m };
@@ -763,7 +773,8 @@ function sanitizeState(data) {
     billTitle: String(data.billTitle || ''),
     members,
     expenses,
-    pool
+    pool,
+    poolMode: data.poolMode === 'equal' ? 'equal' : 'individual'
   };
 }
 
@@ -809,10 +820,10 @@ function loadLocalDraft() {
       const d = JSON.parse(raw);
       state = sanitizeState(d.state || d);
     } else {
-      state = { billTitle: '', members: [], expenses: [], pool: {} };
+      state = { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
     }
   } catch(_) {
-    state = { billTitle: '', members: [], expenses: [], pool: {} };
+    state = { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
   }
 }
 
@@ -843,6 +854,7 @@ function save(broadcast = true) {
         members: state.members || [],
         expenses: state.expenses || [],
         pool: state.pool || {},
+        poolMode: state.poolMode === 'equal' ? 'equal' : 'individual',
         updatedAt: firebase.database.ServerValue.TIMESTAMP,
         updatedBy: getEffectiveName()
       };
@@ -1007,7 +1019,32 @@ document.getElementById('bill-title').addEventListener('input', function() {
 });
 
 /* ── Pool ── */
+function setPoolMode(mode) {
+  state.poolMode = mode === 'equal' ? 'equal' : 'individual';
+  debouncedSave();
+  updatePoolModeUI();
+  updatePoolSummary();
+  renderSettle();
+}
+
+function updatePoolModeUI() {
+  const mode = state.poolMode === 'equal' ? 'equal' : 'individual';
+  const indBtn = document.getElementById('pool-mode-btn-individual');
+  const eqBtn = document.getElementById('pool-mode-btn-equal');
+  const descEl = document.getElementById('pool-mode-desc');
+  if (indBtn) indBtn.classList.toggle('active', mode === 'individual');
+  if (eqBtn) eqBtn.classList.toggle('active', mode === 'equal');
+  if (descEl) {
+    if (mode === 'individual') {
+      descEl.innerHTML = '🎁 <strong>個人預繳 / 贊助款模式（推薦）</strong>：每人繳入的款項為個人預繳/贊助款，自動扣抵該成員自己的應付份額並補償代墊人。其他成員<strong>不需分攤贊助款</strong>，未扣抵餘額退回本人。';
+    } else {
+      descEl.innerHTML = '🏦 <strong>全員均攤公費模式</strong>：所有人平分公費總額，多繳者應收回差額、少繳者需補繳差額（適合每人平攤的公費或旅遊基金）。';
+    }
+  }
+}
+
 function renderPoolTab() {
+  updatePoolModeUI();
   const rows = document.getElementById('pool-member-rows');
   const summary = document.getElementById('pool-summary');
   if (!state.members.length) {
@@ -1016,11 +1053,13 @@ function renderPoolTab() {
     return;
   }
   rows.innerHTML = '';
+  const isIndividual = (state.poolMode !== 'equal');
   state.members.forEach(m => {
     const val = state.pool[m.id] || 0;
     const row = document.createElement('div');
     row.className = 'pool-member-row';
-    row.innerHTML = `<div class="pool-member-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="0" value="${val > 0 ? val : ''}" id="pool-input-${m.id}" /><span class="pool-share-label" id="pool-share-${m.id}"></span>`;
+    const placeholder = isIndividual ? '0 (預繳/贊助)' : '0';
+    row.innerHTML = `<div class="pool-member-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="1" placeholder="${placeholder}" value="${val > 0 ? val : ''}" id="pool-input-${m.id}" /><span class="pool-share-label" id="pool-share-${m.id}"></span>`;
     row.querySelector('input').addEventListener('input', function() {
       updatePool(m.id, this.value);
     });
@@ -1036,49 +1075,120 @@ function updatePool(memberId, rawVal) {
 }
 
 function updatePoolSummary() {
-  const { poolBal, poolTotal, poolExpTotal, poolRemain } = computeBalances();
+  const calc = computeBalances();
+  const { poolBal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain } = calc;
   const n = state.members.length;
-  const per = n > 0 ? poolTotal / n : 0;
-  state.members.forEach(m => {
-    const diff = poolBal[m.id] !== undefined ? poolBal[m.id] : ((state.pool[m.id] || 0) - per);
-    const el = document.getElementById('pool-share-' + m.id);
-    if (!el) return;
-    if (poolTotal === 0 && poolExpTotal === 0) { el.textContent = ''; }
-    else if (Math.abs(diff) < 0.005) { el.textContent = '✅ 已平衡'; el.style.color = '#43a047'; }
-    else if (diff > 0) { el.textContent = `應收 $${fmt(diff)}`; el.style.color = 'var(--green)'; }
-    else { el.textContent = `應補 $${fmt(-diff)}`; el.style.color = 'var(--red)'; }
-  });
-  const summary = document.getElementById('pool-summary');
-  if (poolTotal > 0 || poolExpTotal > 0) {
-    summary.style.display = 'flex';
-    document.getElementById('pool-total-display').textContent = '$' + fmt(poolTotal);
 
-    const spentEl = document.getElementById('pool-spent-container');
-    const remainEl = document.getElementById('pool-remain-container');
-    const perLabel = document.getElementById('pool-per-label');
+  const totalLabel = document.getElementById('pool-total-label');
+  const spentLabel = document.getElementById('pool-spent-label');
+  const remainLabel = document.getElementById('pool-remain-label');
+  const spentEl = document.getElementById('pool-spent-container');
+  const remainEl = document.getElementById('pool-remain-container');
+  const perContainer = document.getElementById('pool-per-container');
+  const perLabel = document.getElementById('pool-per-label');
+  const membersLabel = document.getElementById('pool-members-label');
 
-    if (spentEl && remainEl) {
-      if (poolExpTotal > 0) {
-        spentEl.style.display = 'inline';
-        remainEl.style.display = 'inline';
-        document.getElementById('pool-spent-display').textContent = '$' + fmt(poolExpTotal);
-        const remainText = poolRemain >= 0 ? '$' + fmt(poolRemain) : '-$' + fmt(Math.abs(poolRemain)) + ' (赤字)';
-        document.getElementById('pool-remain-display').textContent = remainText;
-        if (perLabel) perLabel.textContent = poolRemain >= 0 ? '人均剩餘' : '人均應補繳';
-        const perRemain = n > 0 ? poolRemain / n : 0;
-        document.getElementById('pool-per-display').textContent = (perRemain >= 0 ? '$' : '-$') + fmt(Math.abs(perRemain));
+  if (poolMode === 'individual') {
+    let totalOffset = 0;
+    let totalRemain = 0;
+    let sponsorsCount = 0;
+    state.members.forEach(m => {
+      const val = Number(state.pool[m.id]) || 0;
+      if (val > 0) sponsorsCount++;
+      const off = (poolOffset && poolOffset[m.id]) || 0;
+      const rem = (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : val;
+      const rmb = (poolReimbursed && poolReimbursed[m.id]) || 0;
+      totalOffset += off;
+      totalRemain += rem;
+
+      const el = document.getElementById('pool-share-' + m.id);
+      if (!el) return;
+      if (val > 0) {
+        if (off > 0 && rem > 0) {
+          el.textContent = `扣抵 $${fmt(off)} · 餘 $${fmt(rem)}`;
+          el.style.color = 'var(--pool)';
+        } else if (rem > 0 && off === 0) {
+          el.textContent = `未扣抵 · 餘 $${fmt(rem)}`;
+          el.style.color = 'var(--green)';
+        } else {
+          el.textContent = `全數扣抵 ($0)`;
+          el.style.color = '#e65100';
+        }
+      } else if (rmb > 0) {
+        el.textContent = `代墊收回 +$${fmt(rmb)}`;
+        el.style.color = 'var(--green)';
       } else {
-        spentEl.style.display = 'none';
-        remainEl.style.display = 'none';
-        if (perLabel) perLabel.textContent = '人均應繳';
-        document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+        el.textContent = '';
       }
+    });
+
+    const summary = document.getElementById('pool-summary');
+    if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0) {
+      summary.style.display = 'flex';
+      if (totalLabel) totalLabel.textContent = '總預繳/贊助';
+      document.getElementById('pool-total-display').textContent = '$' + fmt(poolTotal);
+
+      if (spentEl) {
+        spentEl.style.display = 'inline';
+        if (spentLabel) spentLabel.textContent = '已扣抵個人支出';
+        document.getElementById('pool-spent-display').textContent = '$' + fmt(totalOffset + poolExpTotal);
+      }
+      if (remainEl) {
+        remainEl.style.display = 'inline';
+        if (remainLabel) remainLabel.textContent = '預繳剩餘總額';
+        document.getElementById('pool-remain-display').textContent = '$' + fmt(totalRemain);
+      }
+      if (perContainer) perContainer.style.display = 'none';
+      if (membersLabel) membersLabel.textContent = '預繳人數';
+      document.getElementById('pool-members-display').textContent = sponsorsCount;
     } else {
-      document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+      summary.style.display = 'none';
     }
-    document.getElementById('pool-members-display').textContent = n;
   } else {
-    summary.style.display = 'none';
+    // Legacy equal pool mode
+    const per = n > 0 ? poolTotal / n : 0;
+    state.members.forEach(m => {
+      const diff = poolBal[m.id] !== undefined ? poolBal[m.id] : ((state.pool[m.id] || 0) - per);
+      const el = document.getElementById('pool-share-' + m.id);
+      if (!el) return;
+      if (poolTotal === 0 && poolExpTotal === 0) { el.textContent = ''; }
+      else if (Math.abs(diff) < 0.005) { el.textContent = '✅ 已平衡'; el.style.color = '#43a047'; }
+      else if (diff > 0) { el.textContent = `應收 $${fmt(diff)}`; el.style.color = 'var(--green)'; }
+      else { el.textContent = `應補 $${fmt(-diff)}`; el.style.color = 'var(--red)'; }
+    });
+
+    const summary = document.getElementById('pool-summary');
+    if (poolTotal > 0 || poolExpTotal > 0) {
+      summary.style.display = 'flex';
+      if (totalLabel) totalLabel.textContent = '總公費';
+      document.getElementById('pool-total-display').textContent = '$' + fmt(poolTotal);
+
+      if (spentEl && remainEl) {
+        if (poolExpTotal > 0) {
+          spentEl.style.display = 'inline';
+          remainEl.style.display = 'inline';
+          if (spentLabel) spentLabel.textContent = '公費支出';
+          document.getElementById('pool-spent-display').textContent = '$' + fmt(poolExpTotal);
+          const remainText = poolRemain >= 0 ? '$' + fmt(poolRemain) : '-$' + fmt(Math.abs(poolRemain)) + ' (赤字)';
+          if (remainLabel) remainLabel.textContent = '公費剩餘';
+          document.getElementById('pool-remain-display').textContent = remainText;
+          if (perContainer) perContainer.style.display = 'inline';
+          if (perLabel) perLabel.textContent = poolRemain >= 0 ? '人均剩餘' : '人均應補繳';
+          const perRemain = n > 0 ? poolRemain / n : 0;
+          document.getElementById('pool-per-display').textContent = (perRemain >= 0 ? '$' : '-$') + fmt(Math.abs(perRemain));
+        } else {
+          spentEl.style.display = 'none';
+          remainEl.style.display = 'none';
+          if (perContainer) perContainer.style.display = 'inline';
+          if (perLabel) perLabel.textContent = '人均應繳';
+          document.getElementById('pool-per-display').textContent = '$' + fmt(per);
+        }
+      }
+      if (membersLabel) membersLabel.textContent = '分攤人數';
+      document.getElementById('pool-members-display').textContent = n;
+    } else {
+      summary.style.display = 'none';
+    }
   }
 }
 
@@ -1602,17 +1712,27 @@ function computeBalances(s = state) {
   const members = toArray(s.members);
   const expenses = toArray(s.expenses);
   const pool = (s.pool && typeof s.pool === 'object') ? s.pool : {};
+  const poolMode = s.poolMode === 'equal' ? 'equal' : 'individual';
+
   const bal = {}, expBal = {}, poolBal = {};
   const poolExpCons = {};
+  const memberExpenses = {};
 
   members.forEach(m => {
     if (!m) return;
     const id = String(m.id);
     bal[id] = 0; expBal[id] = 0; poolBal[id] = 0;
     poolExpCons[id] = 0;
+    memberExpenses[id] = 0;
   });
 
   let poolExpTotal = 0;
+  const owesToPayer = {};
+  const paidByMember = {};
+  members.forEach(m => {
+    owesToPayer[m.id] = {};
+    paidByMember[m.id] = 0;
+  });
 
   expenses.forEach(e => {
     if (!e) return;
@@ -1629,19 +1749,20 @@ function computeBalances(s = state) {
         const val = Number(amt) || 0;
         if (val > 0 && bal[mid] !== undefined) {
           expTotal += val;
+          memberExpenses[mid] += val;
           if (isPool) {
             poolExpCons[mid] += val;
           } else {
-            bal[mid] -= val;
-            expBal[mid] -= val;
+            if (mid !== payerId) {
+              owesToPayer[payerId][mid] = (owesToPayer[payerId][mid] || 0) + val;
+            }
           }
         }
       });
       if (isPool) {
         poolExpTotal += expTotal;
       } else {
-        bal[payerId] += e.amount;
-        expBal[payerId] += e.amount;
+        paidByMember[payerId] += e.amount;
       }
     } else {
       const parts = toArray(e.participantIds).map(String).filter(id => bal[id] !== undefined);
@@ -1650,14 +1771,16 @@ function computeBalances(s = state) {
       if (isPool) {
         poolExpTotal += e.amount;
         parts.forEach(id => {
+          memberExpenses[id] += share;
           poolExpCons[id] += share;
         });
       } else {
-        bal[payerId] += e.amount;
-        expBal[payerId] += e.amount;
+        paidByMember[payerId] += e.amount;
         parts.forEach(id => {
-          bal[id] -= share;
-          expBal[id] -= share;
+          memberExpenses[id] += share;
+          if (id !== payerId) {
+            owesToPayer[payerId][id] = (owesToPayer[payerId][id] || 0) + share;
+          }
         });
       }
     }
@@ -1667,20 +1790,176 @@ function computeBalances(s = state) {
   const n = members.length;
   const poolRemain = poolTotal - poolExpTotal;
 
-  if (n > 0 && (poolTotal > 0 || poolExpTotal > 0)) {
-    const netSharePerMember = poolRemain / n;
-    members.forEach(m => {
-      if (!m) return;
-      const id = String(m.id);
-      const myContrib = Number(pool[id]) || 0;
-      const myCons = poolExpCons[id] || 0;
-      const net = myContrib - myCons - netSharePerMember;
-      bal[id] += net;
-      poolBal[id] += net;
+  if (poolMode === 'equal') {
+    expenses.forEach(e => {
+      const payerId = String(e.payerId || '');
+      if (payerId === 'pool' || bal[payerId] === undefined) return;
+      if (e.splitMode === 'custom') {
+        const splits = e.customSplits || {};
+        Object.entries(splits).forEach(([mid, amt]) => {
+          const val = Number(amt) || 0;
+          if (val > 0 && bal[mid] !== undefined) {
+            bal[mid] -= val;
+            expBal[mid] -= val;
+          }
+        });
+        bal[payerId] += e.amount;
+        expBal[payerId] += e.amount;
+      } else {
+        const parts = toArray(e.participantIds).map(String).filter(id => bal[id] !== undefined);
+        if (!parts.length) return;
+        const share = e.amount / parts.length;
+        bal[payerId] += e.amount;
+        expBal[payerId] += e.amount;
+        parts.forEach(id => {
+          bal[id] -= share;
+          expBal[id] -= share;
+        });
+      }
     });
+
+    if (n > 0 && (poolTotal > 0 || poolExpTotal > 0)) {
+      const netSharePerMember = poolRemain / n;
+      members.forEach(m => {
+        if (!m) return;
+        const id = String(m.id);
+        const myContrib = Number(pool[id]) || 0;
+        const myCons = poolExpCons[id] || 0;
+        const net = myContrib - myCons - netSharePerMember;
+        bal[id] += net;
+        poolBal[id] += net;
+      });
+    }
+
+    Object.keys(bal).forEach(id => {
+      bal[id] = Math.round(bal[id] * 100) / 100;
+    });
+
+    return {
+      poolMode: 'equal',
+      bal, expBal, poolBal,
+      poolTotal, poolExpTotal, poolRemain,
+      poolOffset: {},
+      poolReimbursed: {},
+      poolPersonalRemain: {},
+      memberExpenses
+    };
   }
 
-  return { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain };
+  // INDIVIDUAL SPONSORSHIP / PREPAID MODE
+  const poolOffset = {};
+  const poolPersonalRemain = {};
+  const poolReimbursed = {};
+  const uncoveredPoolExp = {};
+  const directOwed = {};
+
+  members.forEach(m => {
+    poolReimbursed[m.id] = 0;
+    directOwed[m.id] = {};
+    members.forEach(p => {
+      directOwed[m.id][p.id] = 0;
+    });
+  });
+
+  members.forEach(m => {
+    const id = m.id;
+    const contrib = Number(pool[id]) || 0;
+    let debtToOthers = 0;
+    members.forEach(p => {
+      if (p.id !== id) {
+        debtToOthers += (owesToPayer[p.id][id] || 0);
+      }
+    });
+    const debtToPool = poolExpCons[id] || 0;
+    const totalObligations = debtToOthers + debtToPool;
+
+    const offset = Math.min(contrib, totalObligations);
+    poolOffset[id] = offset;
+    poolPersonalRemain[id] = contrib - offset;
+
+    const ratio = totalObligations > 0 ? (offset / totalObligations) : 0;
+
+    members.forEach(p => {
+      if (p.id !== id) {
+        const owed = owesToPayer[p.id][id] || 0;
+        const comp = owed * ratio;
+        poolReimbursed[p.id] += comp;
+        directOwed[id][p.id] = owed - comp;
+      }
+    });
+
+    const coveredPool = debtToPool * ratio;
+    uncoveredPoolExp[id] = debtToPool - coveredPool;
+  });
+
+  let totalSurplus = 0;
+  let totalUncoveredPool = 0;
+  members.forEach(m => {
+    totalSurplus += poolPersonalRemain[m.id] || 0;
+    totalUncoveredPool += uncoveredPoolExp[m.id] || 0;
+  });
+
+  const poolCred = {};
+  members.forEach(m => {
+    poolCred[m.id] = 0;
+  });
+
+  if (totalUncoveredPool > 0) {
+    if (totalSurplus > 0) {
+      members.forEach(m => {
+        const surplus = poolPersonalRemain[m.id] || 0;
+        if (surplus > 0) {
+          poolCred[m.id] = totalUncoveredPool * (surplus / totalSurplus);
+        }
+      });
+    }
+  }
+
+  members.forEach(m => {
+    const id = m.id;
+    let directCredit = 0;
+    let directDebit = 0;
+    members.forEach(other => {
+      if (other.id !== id) {
+        directCredit += directOwed[other.id][id] || 0;
+        directDebit += directOwed[id][other.id] || 0;
+      }
+    });
+
+    const net = (directCredit + poolCred[id]) - (directDebit + uncoveredPoolExp[id]);
+    bal[id] = net;
+    expBal[id] = (paidByMember[id] - (memberExpenses[id] - (poolExpCons[id] || 0)));
+    poolBal[id] = (Number(pool[id]) || 0) - (poolOffset[id] || 0);
+  });
+
+  // Strict penny-balancing to guarantee exact sum(bal) === 0
+  let rawSum = 0;
+  members.forEach(m => {
+    bal[m.id] = Math.round(bal[m.id] * 100) / 100;
+    rawSum += bal[m.id];
+  });
+  rawSum = Math.round(rawSum * 100) / 100;
+  if (Math.abs(rawSum) >= 0.01 && members.length > 0) {
+    let maxMid = members[0].id;
+    let maxAbs = Math.abs(bal[maxMid]);
+    members.forEach(m => {
+      if (Math.abs(bal[m.id]) > maxAbs) {
+        maxAbs = Math.abs(bal[m.id]);
+        maxMid = m.id;
+      }
+    });
+    bal[maxMid] = Math.round((bal[maxMid] - rawSum) * 100) / 100;
+  }
+
+  return {
+    poolMode: 'individual',
+    bal, expBal, poolBal,
+    poolTotal, poolExpTotal, poolRemain,
+    poolOffset,
+    poolReimbursed,
+    poolPersonalRemain,
+    memberExpenses
+  };
 }
 
 function minimizeTransactions(balances) {
@@ -1713,7 +1992,8 @@ function renderSettle() {
   const poolTitleEl = document.getElementById('settle-pool-title');
   const poolBodyEl = document.getElementById('settle-pool-body');
 
-  const { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain } = computeBalances();
+  const calc = computeBalances();
+  const { bal, expBal, poolBal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain } = calc;
   const hasData = state.members.length > 0 && (state.expenses.length > 0 || poolTotal > 0 || poolExpTotal > 0);
   if (!hasData) {
     if (poolCardEl) poolCardEl.style.display = 'none';
@@ -1723,30 +2003,72 @@ function renderSettle() {
   }
 
   if (poolCardEl && poolTitleEl && poolBodyEl) {
-    if (poolTotal > 0 || poolExpTotal > 0) {
-      poolCardEl.style.display = 'block';
-      const perPoolRemain = state.members.length > 0 ? Math.abs(poolRemain) / state.members.length : 0;
-      if (poolRemain > 0) {
+    if (poolMode === 'individual') {
+      let totalOffset = 0;
+      let totalRemain = 0;
+      state.members.forEach(m => {
+        totalOffset += (poolOffset && poolOffset[m.id]) || 0;
+        totalRemain += (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : (Number(state.pool[m.id]) || 0);
+      });
+      if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0) {
+        poolCardEl.style.display = 'block';
         poolCardEl.style.background = 'var(--pool-bg)';
         poolCardEl.style.borderColor = 'var(--pool-border)';
         poolTitleEl.style.color = 'var(--pool)';
-        poolTitleEl.textContent = `🏦 公費池結餘：剩餘 $${fmt(poolRemain)}`;
-        poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 剩餘 <strong>$${fmt(poolRemain)}</strong><br><span style="color:var(--pool);font-weight:600">結算完成後，每人可由公費保管人退回 $${fmt(perPoolRemain)}</span>`;
-      } else if (poolRemain < 0) {
-        poolCardEl.style.background = '#ffebee';
-        poolCardEl.style.borderColor = '#ffcdd2';
-        poolTitleEl.style.color = 'var(--red)';
-        poolTitleEl.textContent = `⚠️ 公費池透支（赤字）：-$${fmt(Math.abs(poolRemain))}`;
-        poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 赤字 <strong>-$${fmt(Math.abs(poolRemain))}</strong><br><span style="color:var(--red);font-weight:600">公費不足支出，每人需補繳 $${fmt(perPoolRemain)} 到公費池（若已有成員墊付，請至「公費池」補登繳入金額）</span>`;
+        poolTitleEl.textContent = `🎁 個人預繳 / 贊助款池明細（總額 $${fmt(poolTotal)}）`;
+
+        let poolDetailHtml = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 已扣抵個人支出 <strong>$${fmt(totalOffset + poolExpTotal)}</strong> · 剩餘款項 <strong>$${fmt(totalRemain)}</strong>`;
+        const activePoolMembers = state.members.filter(m => (Number(state.pool[m.id]) > 0 || (poolReimbursed && poolReimbursed[m.id] > 0)));
+        if (activePoolMembers.length > 0) {
+          poolDetailHtml += `<div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--pool-border);display:flex;flex-direction:column;gap:5px;font-size:0.78rem;line-height:1.6">`;
+          activePoolMembers.forEach(m => {
+            const val = Number(state.pool[m.id]) || 0;
+            const off = (poolOffset && poolOffset[m.id]) || 0;
+            const rem = (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : val;
+            const rmb = (poolReimbursed && poolReimbursed[m.id]) || 0;
+            const items = [];
+            if (val > 0) {
+              items.push(`預繳 <strong>$${fmt(val)}</strong>`);
+              items.push(`扣抵個人消費 <strong>$${fmt(off)}</strong>`);
+              items.push(`剩餘 <strong>$${fmt(rem)}</strong>${rem > 0 ? '（退還本人）' : ''}`);
+            }
+            if (rmb > 0) {
+              items.push(`代墊已由贊助款收回 <strong>+$${fmt(rmb)}</strong>`);
+            }
+            poolDetailHtml += `<div>• <strong>${escHtml(m.name)}</strong>：${items.join(' · ')}</div>`;
+          });
+          poolDetailHtml += `</div>`;
+        }
+        poolBodyEl.innerHTML = poolDetailHtml;
       } else {
-        poolCardEl.style.background = 'var(--pool-bg)';
-        poolCardEl.style.borderColor = 'var(--pool-border)';
-        poolTitleEl.style.color = 'var(--pool)';
-        poolTitleEl.textContent = `🏦 公費池已全數用罄（餘額 $0）`;
-        poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 剩餘 <strong>$0</strong>`;
+        poolCardEl.style.display = 'none';
       }
     } else {
-      poolCardEl.style.display = 'none';
+      if (poolTotal > 0 || poolExpTotal > 0) {
+        poolCardEl.style.display = 'block';
+        const perPoolRemain = state.members.length > 0 ? Math.abs(poolRemain) / state.members.length : 0;
+        if (poolRemain > 0) {
+          poolCardEl.style.background = 'var(--pool-bg)';
+          poolCardEl.style.borderColor = 'var(--pool-border)';
+          poolTitleEl.style.color = 'var(--pool)';
+          poolTitleEl.textContent = `🏦 公費池結餘：剩餘 $${fmt(poolRemain)}`;
+          poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 剩餘 <strong>$${fmt(poolRemain)}</strong><br><span style="color:var(--pool);font-weight:600">結算完成後，每人可由公費保管人退回 $${fmt(perPoolRemain)}</span>`;
+        } else if (poolRemain < 0) {
+          poolCardEl.style.background = '#ffebee';
+          poolCardEl.style.borderColor = '#ffcdd2';
+          poolTitleEl.style.color = 'var(--red)';
+          poolTitleEl.textContent = `⚠️ 公費池透支（赤字）：-$${fmt(Math.abs(poolRemain))}`;
+          poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 赤字 <strong>-$${fmt(Math.abs(poolRemain))}</strong><br><span style="color:var(--red);font-weight:600">公費不足支出，每人需補繳 $${fmt(perPoolRemain)} 到公費池（若已有成員墊付，請至「公費池」補登繳入金額）</span>`;
+        } else {
+          poolCardEl.style.background = 'var(--pool-bg)';
+          poolCardEl.style.borderColor = 'var(--pool-border)';
+          poolTitleEl.style.color = 'var(--pool)';
+          poolTitleEl.textContent = `🏦 公費池已全數用罄（餘額 $0）`;
+          poolBodyEl.innerHTML = `總繳入 <strong>$${fmt(poolTotal)}</strong> · 支出 <strong>$${fmt(poolExpTotal)}</strong> · 剩餘 <strong>$0</strong>`;
+        }
+      } else {
+        poolCardEl.style.display = 'none';
+      }
     }
   }
 
@@ -1761,20 +2083,41 @@ function renderSettle() {
     const label = b > 0.005 ? '應收' : b < -0.005 ? '應付' : '已結清';
     const sign = b > 0.005 ? '+' : (b < -0.005 ? '-' : '');
     let breakdown = '';
-    const hasExpBal = Math.abs(eb) > 0.005;
-    const hasPoolBal = Math.abs(pb) > 0.005;
-    if (hasExpBal && hasPoolBal) {
-      breakdown = `<div class="s-breakdown">個人費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費結算：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
-    } else if (hasExpBal && (poolTotal > 0 || poolExpTotal > 0)) {
-      breakdown = `<div class="s-breakdown">個人費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費結算：$0</div>`;
-    } else if (hasPoolBal && state.expenses.some(e => String(e.payerId) !== 'pool')) {
-      breakdown = `<div class="s-breakdown">個人費用：$0<br>公費結算：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
+    if (poolMode === 'individual') {
+      const pVal = Number(state.pool[id]) || 0;
+      const off = (poolOffset && poolOffset[id]) || 0;
+      const rem = (poolPersonalRemain && poolPersonalRemain[id] !== undefined) ? poolPersonalRemain[id] : pVal;
+      const rmb = (poolReimbursed && poolReimbursed[id]) || 0;
+      const lines = [];
+      if (pVal > 0) {
+        lines.push(`預繳款：$${fmt(pVal)} (扣抵 $${fmt(off)}，餘 $${fmt(rem)})`);
+      }
+      if (rmb > 0) {
+        lines.push(`公費/贊助已補償代墊：+$${fmt(rmb)}`);
+      }
+      if (Math.abs(b) > 0.005) {
+        lines.push(`結算轉帳：${sign}$${fmt(Math.abs(b))}`);
+      }
+      if (lines.length > 0) {
+        breakdown = `<div class="s-breakdown">${lines.join('<br>')}</div>`;
+      }
+    } else {
+      const hasExpBal = Math.abs(eb) > 0.005;
+      const hasPoolBal = Math.abs(pb) > 0.005;
+      if (hasExpBal && hasPoolBal) {
+        breakdown = `<div class="s-breakdown">個人費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費結算：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
+      } else if (hasExpBal && (poolTotal > 0 || poolExpTotal > 0)) {
+        breakdown = `<div class="s-breakdown">個人費用：${eb > 0 ? '+' : (eb < 0 ? '-' : '')}$${fmt(Math.abs(eb))}<br>公費結算：$0</div>`;
+      } else if (hasPoolBal && state.expenses.some(e => String(e.payerId) !== 'pool')) {
+        breakdown = `<div class="s-breakdown">個人費用：$0<br>公費結算：${pb > 0 ? '+' : (pb < 0 ? '-' : '')}$${fmt(Math.abs(pb))}</div>`;
+      }
     }
     const el = document.createElement('div');
     el.className = `settle-person ${cls}`;
     el.innerHTML = `${avatar(m, 32).replace('>', ' style="margin:0 auto 6px">')}<div class="s-name">${escHtml(m.name)}</div><div class="s-bal">${sign}$${fmt(Math.abs(b))}</div><div class="s-label">${label}</div>${breakdown}`;
     summaryEl.appendChild(el);
   });
+
   if (!txs.length) {
     txListEl.innerHTML = '<li class="empty-state"><div class="icon">✅</div>所有人已結清，無需轉帳！</li>';
     return;
@@ -1791,11 +2134,12 @@ function renderSettle() {
 }
 
 function copyResult() {
-  if (!state.expenses.length && Object.values(state.pool).every(v => v === 0)) {
+  if (!state.expenses.length && Object.values(state.pool).every(v => Number(v) === 0)) {
     toast('沒有資料可複製');
     return;
   }
-  const { bal, poolTotal, poolExpTotal, poolRemain } = computeBalances();
+  const calc = computeBalances();
+  const { bal, poolTotal, poolExpTotal, poolRemain, poolMode, poolOffset, poolReimbursed, poolPersonalRemain } = calc;
   const txs = minimizeTransactions(bal);
   const title = state.billTitle || '分帳結算';
   const expTotal = state.expenses.reduce((s, e) => s + e.amount, 0);
@@ -1809,47 +2153,100 @@ function copyResult() {
     }
     text += `）\n`;
   }
-  if (poolTotal > 0 || poolExpTotal > 0) {
-    text += `公費池：總繳入 $${fmt(poolTotal)}`;
-    if (poolExpTotal > 0) {
+
+  if (poolMode === 'individual') {
+    let totalOffset = 0;
+    let totalRemain = 0;
+    state.members.forEach(m => {
+      totalOffset += (poolOffset && poolOffset[m.id]) || 0;
+      totalRemain += (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : (Number(state.pool[m.id]) || 0);
+    });
+    if (poolTotal > 0 || poolExpTotal > 0 || totalOffset > 0) {
+      text += `公費/贊助池（個人預繳扣抵）：總預繳 $${fmt(poolTotal)} · 已扣抵 $${fmt(totalOffset + poolExpTotal)} · 剩餘 $${fmt(totalRemain)}\n`;
+    }
+    text += `\n各人結餘：\n`;
+    state.members.forEach(m => {
+      const b = Math.round((bal[m.id] || 0) * 100) / 100;
+      let statusText = '已結清 $0';
+      if (b > 0.005) statusText = `應收 +$${fmt(b)}`;
+      else if (b < -0.005) statusText = `應付 -$${fmt(Math.abs(b))}`;
+
+      const pVal = Number(state.pool[m.id]) || 0;
+      const off = (poolOffset && poolOffset[m.id]) || 0;
+      const rem = (poolPersonalRemain && poolPersonalRemain[m.id] !== undefined) ? poolPersonalRemain[m.id] : pVal;
+      const rmb = (poolReimbursed && poolReimbursed[m.id]) || 0;
+      const notes = [];
+      if (pVal > 0) {
+        notes.push(`預繳 $${fmt(pVal)}，扣抵 $${fmt(off)}，餘 $${fmt(rem)}`);
+      }
+      if (rmb > 0) {
+        notes.push(`由贊助款收回代墊 $${fmt(rmb)}`);
+      }
+      const noteStr = notes.length ? `（${notes.join('；')}）` : '';
+      text += `  ${m.name}：${statusText}${noteStr}\n`;
+    });
+
+    text += `\n轉帳清單：\n`;
+    if (!txs.length) {
+      text += `  所有人已結清！\n`;
+    } else {
+      txs.forEach(tx => {
+        const f = state.members.find(m => String(m.id) === String(tx.from))?.name || '?';
+        const t = state.members.find(m => String(m.id) === String(tx.to))?.name || '?';
+        text += `  ${f} → ${t}：$${fmt(tx.amount)}\n`;
+      });
+    }
+
+    const membersWithRemain = state.members.filter(m => (poolPersonalRemain && poolPersonalRemain[m.id] > 0));
+    if (membersWithRemain.length > 0) {
+      text += `\n預繳款/贊助款退還：\n`;
+      membersWithRemain.forEach(m => {
+        text += `  ${m.name} 預繳款尚有剩餘 $${fmt(poolPersonalRemain[m.id])}，由公費保管人退還本人。\n`;
+      });
+    }
+  } else {
+    if (poolTotal > 0 || poolExpTotal > 0) {
+      text += `公費池：總繳入 $${fmt(poolTotal)}`;
+      if (poolExpTotal > 0) {
+        const perPoolRemain = n > 0 ? Math.abs(poolRemain) / n : 0;
+        if (poolRemain > 0) {
+          text += ` · 支出 $${fmt(poolExpTotal)} · 剩餘 $${fmt(poolRemain)}（每人可退 $${fmt(perPoolRemain)}）`;
+        } else if (poolRemain < 0) {
+          text += ` · 支出 $${fmt(poolExpTotal)} · 透支 $${fmt(Math.abs(poolRemain))}（每人應補繳 $${fmt(perPoolRemain)}）`;
+        } else {
+          text += ` · 支出 $${fmt(poolExpTotal)} · 已用罄（餘額 $0）`;
+        }
+      } else {
+        const per = n > 0 ? poolTotal / n : 0;
+        text += `（每人應繳 $${fmt(per)}）`;
+      }
+      text += `\n`;
+    }
+    text += `\n各人結餘：\n`;
+    state.members.forEach(m => {
+      const b = Math.round((bal[m.id] || 0) * 100) / 100;
+      let statusText = '已結清 $0';
+      if (b > 0.005) statusText = `應收 +$${fmt(b)}`;
+      else if (b < -0.005) statusText = `應付 -$${fmt(Math.abs(b))}`;
+      text += `  ${m.name}：${statusText}\n`;
+    });
+    text += `\n轉帳清單：\n`;
+    if (!txs.length) {
+      text += `  所有人已結清！\n`;
+    } else {
+      txs.forEach(tx => {
+        const f = state.members.find(m => String(m.id) === String(tx.from))?.name || '?';
+        const t = state.members.find(m => String(m.id) === String(tx.to))?.name || '?';
+        text += `  ${f} → ${t}：$${fmt(tx.amount)}\n`;
+      });
+    }
+    if (poolTotal > 0 || poolExpTotal > 0) {
       const perPoolRemain = n > 0 ? Math.abs(poolRemain) / n : 0;
       if (poolRemain > 0) {
-        text += ` · 支出 $${fmt(poolExpTotal)} · 剩餘 $${fmt(poolRemain)}（每人可退 $${fmt(perPoolRemain)}）`;
+        text += `\n公費池退款：\n  公費池尚有剩餘 $${fmt(poolRemain)}，由公費保管人退還每人 $${fmt(perPoolRemain)}。\n`;
       } else if (poolRemain < 0) {
-        text += ` · 支出 $${fmt(poolExpTotal)} · 透支 $${fmt(Math.abs(poolRemain))}（每人應補繳 $${fmt(perPoolRemain)}）`;
-      } else {
-        text += ` · 支出 $${fmt(poolExpTotal)} · 已用罄（餘額 $0）`;
+        text += `\n公費池補繳：\n  公費池尚有透支 $${fmt(Math.abs(poolRemain))}，每人需補繳 $${fmt(perPoolRemain)} 到公費池。\n`;
       }
-    } else {
-      const per = n > 0 ? poolTotal / n : 0;
-      text += `（每人應繳 $${fmt(per)}）`;
-    }
-    text += `\n`;
-  }
-  text += `\n各人結餘：\n`;
-  state.members.forEach(m => {
-    const b = Math.round((bal[m.id] || 0) * 100) / 100;
-    let statusText = '已結清 $0';
-    if (b > 0.005) statusText = `應收 +$${fmt(b)}`;
-    else if (b < -0.005) statusText = `應付 -$${fmt(Math.abs(b))}`;
-    text += `  ${m.name}：${statusText}\n`;
-  });
-  text += `\n轉帳清單：\n`;
-  if (!txs.length) {
-    text += `  所有人已結清！\n`;
-  } else {
-    txs.forEach(tx => {
-      const f = state.members.find(m => String(m.id) === String(tx.from))?.name || '?';
-      const t = state.members.find(m => String(m.id) === String(tx.to))?.name || '?';
-      text += `  ${f} → ${t}：$${fmt(tx.amount)}\n`;
-    });
-  }
-  if (poolTotal > 0 || poolExpTotal > 0) {
-    const perPoolRemain = n > 0 ? Math.abs(poolRemain) / n : 0;
-    if (poolRemain > 0) {
-      text += `\n公費池退款：\n  公費池尚有剩餘 $${fmt(poolRemain)}，由公費保管人退還每人 $${fmt(perPoolRemain)}。\n`;
-    } else if (poolRemain < 0) {
-      text += `\n公費池補繳：\n  公費池尚有透支 $${fmt(Math.abs(poolRemain))}，每人需補繳 $${fmt(perPoolRemain)} 到公費池。\n`;
     }
   }
   copyText(text, '已複製結算結果！');
@@ -1860,7 +2257,7 @@ function clearAll() {
     ? '確定要清除線上房間的所有資料嗎？所有連線中的成員畫面都會被清空。'
     : '確定要清除所有資料嗎？此操作無法復原。';
   if (!confirm(msg)) return;
-  state = { billTitle: '', members: [], expenses: [], pool: {} };
+  state = { billTitle: '', members: [], expenses: [], pool: {}, poolMode: 'individual' };
   selectedParticipants.clear();
   closeEditExpenseModal();
   document.getElementById('bill-title').value = '';
@@ -2046,13 +2443,15 @@ function applyRemoteData(data, updatedBy) {
     t: state.billTitle || '',
     m: state.members || [],
     e: state.expenses || [],
-    p: state.pool || {}
+    p: state.pool || {},
+    pm: state.poolMode || 'individual'
   });
   const newJson = JSON.stringify({
     t: sanitized.billTitle || '',
     m: sanitized.members || [],
     e: sanitized.expenses || [],
-    p: sanitized.pool || {}
+    p: sanitized.pool || {},
+    pm: sanitized.poolMode || 'individual'
   });
   if (curJson === newJson) return;
 
@@ -2062,6 +2461,7 @@ function applyRemoteData(data, updatedBy) {
     state.members = sanitized.members;
     state.expenses = sanitized.expenses;
     state.pool = sanitized.pool;
+    state.poolMode = sanitized.poolMode;
 
     // Cache locally under room key
     saveLocalRoomCache();
@@ -2465,6 +2865,8 @@ window.renderSettle = renderSettle;
 window.addExpense = addExpense;
 window.removeExpense = removeExpense;
 window.applyRemoteData = applyRemoteData;
+window.setPoolMode = setPoolMode;
+window.updatePoolModeUI = updatePoolModeUI;
 
 init();
 </script>

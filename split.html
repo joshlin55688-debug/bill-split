@@ -1184,27 +1184,34 @@ function openEditExpenseModal(id) {
     payerSel.value = String(exp.payerId);
   }
 
+  // Pre-fill amount field unconditionally to prevent stale values from previous modals
+  document.getElementById('edit-exp-amount').value = (exp.amount !== undefined && exp.amount !== null) ? exp.amount : '';
+
   editCurrentSplitMode = exp.splitMode === 'custom' ? 'custom' : 'equal';
-  setEditSplitMode(editCurrentSplitMode, false);
+  editSelectedParticipants.clear();
+
+  const curMemberIds = state.members.map(m => String(m.id));
 
   if (editCurrentSplitMode === 'equal') {
-    document.getElementById('edit-exp-amount').value = (exp.amount !== undefined && exp.amount !== null) ? exp.amount : '';
-    editSelectedParticipants.clear();
-    const pIds = toArray(exp.participantIds).map(String);
-    const curMemberIds = state.members.map(m => String(m.id));
+    const uniquePIds = [...new Set(toArray(exp.participantIds).map(String))];
     const isAll = curMemberIds.length > 0 &&
-                  pIds.length === curMemberIds.length &&
-                  curMemberIds.every(mid => pIds.includes(mid));
-    if (!isAll && pIds.length > 0) {
-      pIds.forEach(pid => {
+                  uniquePIds.length === curMemberIds.length &&
+                  curMemberIds.every(mid => uniquePIds.includes(mid));
+    if (!isAll && uniquePIds.length > 0) {
+      uniquePIds.forEach(pid => {
         if (curMemberIds.includes(pid)) {
           editSelectedParticipants.add(pid);
         }
       });
     }
-    renderEditParticipants();
+    setEditSplitMode('equal', false);
   } else {
-    renderEditCustomSplitRows(exp.customSplits);
+    // Custom split mode: initialize selected participants based on members with custom split > 0
+    const activeIds = Object.keys(exp.customSplits || {}).filter(k => (Number(exp.customSplits[k]) || 0) > 0 && curMemberIds.includes(String(k)));
+    if (activeIds.length > 0 && activeIds.length < curMemberIds.length) {
+      activeIds.forEach(id => editSelectedParticipants.add(String(id)));
+    }
+    setEditSplitMode('custom', false, exp.customSplits);
   }
 
   const modal = document.getElementById('edit-expense-modal');
@@ -1225,7 +1232,7 @@ function closeEditExpenseModal() {
   editSelectedParticipants.clear();
 }
 
-function setEditSplitMode(mode, autoDistribute = true) {
+function setEditSplitMode(mode, autoDistribute = true, initialCustomData = null) {
   editCurrentSplitMode = mode;
   document.getElementById('edit-mode-btn-equal').classList.toggle('active', mode === 'equal');
   document.getElementById('edit-mode-btn-custom').classList.toggle('active', mode === 'custom');
@@ -1233,9 +1240,11 @@ function setEditSplitMode(mode, autoDistribute = true) {
   document.getElementById('edit-custom-section').style.display = mode === 'custom' ? 'block' : 'none';
 
   if (mode === 'custom') {
-    let customData = null;
-    if (autoDistribute) {
+    if (initialCustomData) {
+      renderEditCustomSplitRows(initialCustomData);
+    } else if (autoDistribute) {
       const amt = parseFloat(document.getElementById('edit-exp-amount').value) || 0;
+      let customData = null;
       if (amt > 0 && state.members.length > 0) {
         const pIds = editSelectedParticipants.size > 0
           ? [...editSelectedParticipants]
@@ -1253,16 +1262,30 @@ function setEditSplitMode(mode, autoDistribute = true) {
           });
         }
       }
+      renderEditCustomSplitRows(customData);
+    } else {
+      renderEditCustomSplitRows();
     }
-    renderEditCustomSplitRows(customData);
   } else {
-    renderEditParticipants();
     if (autoDistribute) {
-      const customTotal = getEditCustomTotal();
+      const activeIds = [];
+      state.members.forEach(m => {
+        const el = document.getElementById('edit-custom-input-' + m.id);
+        if (el && (parseFloat(el.value) || 0) > 0) {
+          activeIds.push(String(m.id));
+        }
+      });
+      if (activeIds.length > 0 && activeIds.length < state.members.length) {
+        editSelectedParticipants = new Set(activeIds);
+      } else {
+        editSelectedParticipants.clear();
+      }
+      const customTotal = Math.round(getEditCustomTotal() * 100) / 100;
       if (customTotal > 0) {
         document.getElementById('edit-exp-amount').value = customTotal;
       }
     }
+    renderEditParticipants();
   }
 }
 
@@ -1310,22 +1333,36 @@ function updateEditChips() {
 function renderEditCustomSplitRows(customSplits = null) {
   const container = document.getElementById('edit-custom-split-rows');
   if (!container) return;
+
+  const existingValues = {};
+  if (!customSplits) {
+    state.members.forEach(m => {
+      const curInput = document.getElementById('edit-custom-input-' + m.id);
+      if (curInput && curInput.value !== '') {
+        existingValues[String(m.id)] = curInput.value;
+      }
+    });
+  }
+
   container.innerHTML = '';
   state.members.forEach(m => {
     const mid = String(m.id);
     let val = '';
     if (customSplits && customSplits[mid] !== undefined) {
       val = customSplits[mid];
-    } else {
-      const curInput = document.getElementById('edit-custom-input-' + mid);
-      if (curInput && curInput.value !== '') {
-        val = curInput.value;
-      }
+    } else if (existingValues[mid] !== undefined) {
+      val = existingValues[mid];
     }
     const row = document.createElement('div');
     row.className = 'custom-split-row';
     row.innerHTML = `<div class="custom-split-name">${avatar(m, 26)}${escHtml(m.name)}</div><input type="number" min="0" step="any" placeholder="0" id="edit-custom-input-${m.id}" value="${val !== '' && Number(val) > 0 ? val : ''}" />`;
-    row.querySelector('input').addEventListener('input', updateEditCustomTotal);
+    const input = row.querySelector('input');
+    input.addEventListener('input', updateEditCustomTotal);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
+        saveExpenseEdit();
+      }
+    });
     container.appendChild(row);
   });
   updateEditCustomTotal();
@@ -1339,7 +1376,7 @@ function getEditCustomTotal() {
 }
 
 function updateEditCustomTotal() {
-  const total = getEditCustomTotal();
+  const total = Math.round(getEditCustomTotal() * 100) / 100;
   const display = document.getElementById('edit-custom-total-display');
   if (display) display.textContent = '$' + fmt(total);
 }
@@ -1372,6 +1409,7 @@ function saveExpenseEdit() {
 
   if (editCurrentSplitMode === 'equal') {
     amount = parseFloat(document.getElementById('edit-exp-amount').value);
+    amount = Math.round((amount || 0) * 100) / 100;
     if (!amount || amount <= 0) {
       toast('請輸入有效金額');
       const amtEl = document.getElementById('edit-exp-amount');
@@ -1388,12 +1426,13 @@ function saveExpenseEdit() {
   } else {
     state.members.forEach(m => {
       const el = document.getElementById('edit-custom-input-' + m.id);
-      const v = parseFloat(el?.value) || 0;
+      const v = Math.round((parseFloat(el?.value) || 0) * 100) / 100;
       if (v > 0) {
         customSplits[String(m.id)] = v;
         amount += v;
       }
     });
+    amount = Math.round(amount * 100) / 100;
     if (amount <= 0) {
       toast('請輸入至少一人的分攤金額');
       return;
@@ -1416,6 +1455,26 @@ function saveExpenseEdit() {
   renderSettle();
   closeEditExpenseModal();
   toast(`已更新：${name}`);
+}
+
+function refreshEditModalMembers() {
+  const modal = document.getElementById('edit-expense-modal');
+  if (!modal || !modal.classList.contains('active')) return;
+  const payerSel = document.getElementById('edit-exp-payer');
+  if (payerSel) {
+    const curPayer = payerSel.value;
+    payerSel.innerHTML = state.members.length
+      ? state.members.map(m => `<option value="${m.id}">${escHtml(m.name)}</option>`).join('')
+      : '<option value="">（請先新增成員）</option>';
+    if (state.members.some(m => String(m.id) === curPayer)) {
+      payerSel.value = curPayer;
+    }
+  }
+  if (editCurrentSplitMode === 'equal') {
+    renderEditParticipants();
+  } else {
+    renderEditCustomSplitRows(null);
+  }
 }
 
 function renderExpenses() {
@@ -1843,9 +1902,13 @@ function applyRemoteData(data, updatedBy) {
     renderMembers();
     renderExpenses();
 
-    if (editingExpenseId && !state.expenses.some(e => String(e.id) === String(editingExpenseId))) {
-      closeEditExpenseModal();
-      toast('⚠️ 正在編輯的費用已被遠端刪除');
+    if (editingExpenseId) {
+      if (!state.expenses.some(e => String(e.id) === String(editingExpenseId))) {
+        closeEditExpenseModal();
+        toast('⚠️ 正在編輯的費用已被遠端刪除');
+      } else {
+        refreshEditModalMembers();
+      }
     }
 
     // Preserve active form input focus
@@ -2170,13 +2233,13 @@ function init() {
   const editNameEl = document.getElementById('edit-exp-name');
   if (editNameEl) {
     editNameEl.addEventListener('keydown', e => {
-      if (e.key === 'Enter') saveExpenseEdit();
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) saveExpenseEdit();
     });
   }
   const editAmtEl = document.getElementById('edit-exp-amount');
   if (editAmtEl) {
     editAmtEl.addEventListener('keydown', e => {
-      if (e.key === 'Enter') saveExpenseEdit();
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) saveExpenseEdit();
     });
   }
 
